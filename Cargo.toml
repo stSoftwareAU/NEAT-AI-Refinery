@@ -1,0 +1,19 @@
+[workspace]
+members = ["refinery"]
+resolver = "2"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused = "deny"
+
+[workspace.lints.clippy]
+collapsible_if = "deny"
+filter_next = "deny"
