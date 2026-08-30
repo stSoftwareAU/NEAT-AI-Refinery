@@ -100,6 +100,9 @@ flowchart LR
   otherwise fail on the first PR.
 - **unrequested** — `Cargo.lock` committed — reason: `cargo audit`, dependency
   review and the SBOM all read the lockfile, so it must be in the tree.
+- **unrequested** — `.markdownlint-cli2.yaml` now ignores `target/**` — reason:
+  `cargo doc` emits third-party licence markdown there, which failed the local
+  markdown gate after a doc build.
 - **unrequested** — README "Continuous integration" section and CONTRIBUTING
   "Workflow changes" section — reason: the code change owes a docs change; the
   new gates and the pinning rule need a documented home.
