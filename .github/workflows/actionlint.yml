@@ -1,0 +1,49 @@
+name: Actionlint
+
+# GitHub Actions lint gate. actionlint catches workflow regressions that plain
+# YAML parsing misses — invalid `runs-on` labels, broken `${{ }}` expressions,
+# unknown `uses:` inputs, and shellcheck findings inside `run:` scripts.
+#
+# actionlint itself is NOT fetched through a third-party action: it is
+# downloaded from a version-pinned upstream release by the official installer
+# script and run as a plain binary, mirroring how `ci.yml` invokes ShellCheck
+# directly rather than through a wrapper action.
+
+on:
+  pull_request:
+    branches: ["*", "milestone/**"]
+  workflow_dispatch:
+
+# actionlint only reads the checked-out workflow files.
+permissions:
+  contents: read
+
+concurrency:
+  group: actionlint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Pinned actionlint release — bumped explicitly in a reviewed PR.
+      ACTIONLINT_VERSION: "1.7.7"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Read-only lint job — the GITHUB_TOKEN must not be persisted.
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          curl -fsSL -o download-actionlint.bash \
+            "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash"
+          bash download-actionlint.bash "${ACTIONLINT_VERSION}"
+          echo "${PWD}" >> "${GITHUB_PATH}"
+
+      - name: Run actionlint
+        run: actionlint -color

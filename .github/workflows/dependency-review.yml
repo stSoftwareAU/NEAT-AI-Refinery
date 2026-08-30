@@ -1,0 +1,37 @@
+name: Dependency Review
+
+# The single dependency-review gate for the repository.
+#
+# `actions/dependency-review-action` diffs the PR's manifest (Cargo.toml /
+# Cargo.lock) against the base branch and fails the run if a newly introduced
+# dependency carries a known vulnerability or a disallowed licence — surfacing
+# supply-chain risk before merge. It runs on PRs targeting every branch,
+# including those that bypass the full CI graph (`ci.yml` only fires for PRs
+# into `Develop` and `milestone/**`), which is why `ci.yml` passes
+# `include-dependency-review: false` to the reusable security workflow.
+
+on:
+  pull_request:
+    branches: ["*", "milestone/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Diffs the PR manifest against the base and never pushes back.
+          persist-credentials: false
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0

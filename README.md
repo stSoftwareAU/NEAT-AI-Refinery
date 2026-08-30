@@ -105,6 +105,54 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
+Before raising a PR, run the full local gate — it mirrors CI:
+
+```bash
+./quality.sh
+```
+
+`quality.sh` needs `shellcheck` and `cargo-deny`; `markdownlint-cli2` and
+`actionlint` are used when installed and skipped with a notice otherwise
+(CI always runs them).
+
+## Continuous integration
+
+PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
+`ci-required` job is the single aggregated merge gate:
+
+```mermaid
+flowchart LR
+    V[validation<br/>required files, cargo metadata] --> Q[quality<br/>cargo-deny, fmt, clippy, build, test, doc]
+    V --> S[security<br/>rustsec/audit-check]
+    SH[shell-checks<br/>bash -n, shellcheck]
+    Q --> R[ci-required]
+    S --> R
+    SH --> R
+```
+
+Standalone gates run on PRs against every base branch, so work that bypasses
+the full CI graph is still covered:
+
+| Workflow | Gate |
+| --- | --- |
+| `cargo-quality.yml` | `cargo fmt` and `cargo clippy` |
+| `cargo-audit.yml` | RustSec advisories (also weekly on cron) |
+| `dependency-review.yml` | new dependencies: vulnerabilities and licences |
+| `gitleaks.yml` | secret scanning over the PR commit range |
+| `semgrep.yml` | SAST scanning |
+| `sbom.yml` | CycloneDX SBOM artefact |
+| `actionlint.yml` | workflow YAML lint |
+| `markdown-lint.yml` | `markdownlint-cli2` |
+| `cargo-upgrade.yml` | weekly dependency-refresh PR |
+
+Every third-party `uses:` reference is pinned to a 40-character commit SHA with
+a trailing `# <version>` comment, and container images are pinned by `sha256:`
+digest. `refinery/tests/workflow_pins.rs` enforces that on every `cargo test`
+run, so an unpinned action fails the build rather than a review.
+
+Refinery has no NEAT-AI-core path dependency, so — unlike the sibling
+projects — no workflow checks out a sibling repository.
+
 ## Licence
 
 Apache-2.0.

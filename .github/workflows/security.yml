@@ -1,0 +1,59 @@
+name: Security Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      include-dependency-review:
+        description: "Include dependency review"
+        required: false
+        type: boolean
+        default: true
+
+# Least-privilege token scope, derived from the steps below:
+#   * checks: write        — rustsec/audit-check annotates the check run.
+#   * pull-requests: write — dependency-review posts its `comment-summary-in-pr`
+#                            summary comment.
+# `issues: write` is deliberately NOT granted: audit-check only files issues on
+# non-PR events and this workflow's sole caller is PR-gated.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # No step here pushes back, so the GITHUB_TOKEN must not be written to
+          # .git/config where a later step could read it.
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable, frozen 2026-05-18
+
+      # Official RustSec action — wraps cargo-audit and annotates the check run
+      # with any RUSTSEC advisory found in Cargo.lock.
+      - name: Cargo Security Audit (rustsec/audit-check)
+        uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432  # v2 (master HEAD, Node 24)
+        # The action compiles cargo-audit from source. `rust-toolchain.toml`
+        # pins rustc for reproducible builds of *our* code, but that pin must
+        # not gate a third-party *tool* whose transitive deps may raise their
+        # MSRV above it. RUSTUP_TOOLCHAIN takes precedence over the file.
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional dependency review, gated behind `include-dependency-review`.
+      # The sole caller (`ci.yml`) passes `false` — the standalone
+      # `dependency-review.yml` is the universal gate — but the capability is
+      # retained for any future caller that opts back in.
+      - name: Dependency review
+        if: ${{ inputs.include-dependency-review && github.event_name == 'pull_request' }}
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
+        with:
+          comment-summary-in-pr: always
