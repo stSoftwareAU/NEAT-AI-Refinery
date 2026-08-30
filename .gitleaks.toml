@@ -1,1 +1,5 @@
 title = "NEAT-AI-Refinery gitleaks configuration"
+
+[allowlist]
+  description = "Allowlist for known false positives"
+  commits = []

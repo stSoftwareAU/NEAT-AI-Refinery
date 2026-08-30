@@ -1,2 +1,8 @@
 globs:
   - "**/*.md"
+  - "**/*.markdown"
+
+# Build output is not ours to lint — `cargo doc` ships third-party licence
+# markdown under target/.
+ignores:
+  - "target/**"

@@ -1,0 +1,41 @@
+name: Markdown Lint
+
+# Runs `markdownlint-cli2` against the repository's `.markdownlint-cli2.yaml`
+# config so style regressions in README/docs surface before merge.
+#
+# This is a checker, so it gates the pull request only — a post-merge push run
+# on `Develop` would duplicate the check that already gated the PR.
+
+on:
+  pull_request:
+    branches: ["*", "milestone/*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: markdown-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  markdownlint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Read-only lint job — the GITHUB_TOKEN must not be persisted.
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: "lts/*"
+
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2@0.22.1  # pinned
+
+      - name: Run markdownlint-cli2
+        run: markdownlint-cli2

@@ -1,0 +1,67 @@
+name: SBOM
+
+# Software Bill of Materials.
+#
+# Refinery ships a binary (`neat_ai_refinery`), so its dependency inventory
+# belongs in a standard, scanner-consumable format. `Cargo.lock` already pins
+# the full graph; this workflow exports it as a CycloneDX document and uploads
+# it as a build artefact. When a supply-chain advisory drops ("crate X version
+# Y is compromised"), the SBOM answers "are we affected, and where?" in seconds
+# without a Rust toolchain.
+#
+# Scope: active dependency vulnerabilities are owned by `cargo-audit.yml` /
+# `security.yml`; this workflow only emits the inventory artefact.
+
+on:
+  pull_request:
+    # "**" not "*": a single star does not match "/", so PRs into
+    # milestone/<slug> would silently skip this check.
+    branches: ["**"]
+  push:
+    branches: [Develop]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+# Least-privilege: generating and uploading an SBOM only reads the checkout.
+permissions:
+  contents: read
+
+concurrency:
+  group: sbom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Read-only build of the SBOM — the GITHUB_TOKEN must not be
+          # persisted to .git/config.
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable, frozen 2026-05-18
+
+      - name: Install cargo-cyclonedx (prebuilt binary)
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912  # v2.81.10
+        with:
+          tool: cargo-cyclonedx
+
+      - name: Generate CycloneDX SBOM
+        # Reads the resolved workspace metadata and emits a CycloneDX document
+        # per crate (e.g. neat-ai-refinery.cdx.json). Refinery has no sibling
+        # path dependency, so no extra checkout is needed for this to resolve.
+        run: cargo cyclonedx --format json --all
+
+      - name: Upload SBOM artefact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: sbom
+          path: "**/*.cdx.json"
+          if-no-files-found: error

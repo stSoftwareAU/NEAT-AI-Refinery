@@ -20,3 +20,16 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
+
+Run the full gate before raising a PR — it mirrors `.github/workflows/ci.yml`:
+
+```bash
+./quality.sh
+```
+
+## Workflow changes
+
+Pin every third-party action to a 40-character commit SHA with a trailing
+`# <version>` comment, and every container image by `sha256:` digest. Mutable
+tags are rejected by `refinery/tests/workflow_pins.rs`. See the "Continuous
+integration" section of `README.md` for the gate layout.

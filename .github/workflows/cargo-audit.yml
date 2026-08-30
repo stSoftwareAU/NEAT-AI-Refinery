@@ -1,0 +1,47 @@
+name: Cargo Audit
+
+# Standalone RustSec audit.
+#
+# `security.yml` already runs an audit on PRs into Develop. This file mirrors
+# that coverage on every base branch and adds a weekly cron, so an advisory
+# published *after* the last merge still surfaces — the lockfile does not
+# change but the RustSec advisory database does.
+
+on:
+  pull_request:
+    branches: ["*", "milestone/**"]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cargo-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Cargo Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Read-only audit job — the GITHUB_TOKEN must not be persisted.
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable, frozen 2026-05-18
+
+      # Prebuilt binary rather than `cargo install` from source: installs in
+      # seconds instead of minutes.
+      - name: Install cargo-audit (prebuilt binary)
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912  # v2.81.10
+        with:
+          tool: cargo-audit
+
+      - name: Run cargo audit
+        run: cargo audit

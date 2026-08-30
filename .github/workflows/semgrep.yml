@@ -1,0 +1,43 @@
+name: Semgrep
+
+# Semgrep SAST gate for pull requests.
+#
+# Semgrep runs via the official container — upstream's recommended PR-scan
+# integration, equivalent to `semgrep/semgrep-action@v1`, which consumes
+# `SEMGREP_APP_TOKEN` and executes `semgrep ci --config <ruleset>`.
+#
+# The image is pinned by digest, not tag: Docker tags are mutable, so an
+# attacker who compromised the `semgrep/semgrep` namespace could re-push the
+# tag to point at a malicious image. Bump the digest and the trailing version
+# comment in lockstep (`docker buildx imagetools inspect semgrep/semgrep:<v>`).
+
+on:
+  pull_request:
+    branches: ["*", "milestone/*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: Semgrep SAST Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      # semgrep/semgrep v1.86.0 multi-arch manifest, frozen 2026-05-18.
+      image: semgrep/semgrep@sha256:a9ea2d5621c29d815d90c2a3b2f9571da8972ef4ff855c9e4902681730240e35
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          # Read-only scan — the GITHUB_TOKEN must not be persisted.
+          persist-credentials: false
+
+      - name: Run Semgrep
+        run: semgrep ci --config p/default
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
