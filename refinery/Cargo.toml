@@ -1,0 +1,13 @@
+[package]
+name = "neat-ai-refinery"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "High-performance Rust tooling for producing derived NEAT-AI training corpora"
+
+[[bin]]
+name = "neat_ai_refinery"
+path = "src/main.rs"
+
+[lints]
+workspace = true
