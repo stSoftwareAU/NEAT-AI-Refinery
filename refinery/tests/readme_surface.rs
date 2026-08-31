@@ -159,7 +159,10 @@ fn readme_invocation_flags(markdown: &str) -> Vec<(usize, String)> {
         for token in trimmed.split_whitespace() {
             let token = token.trim_start_matches('[').trim_end_matches([']', '\\']);
             if token.starts_with("--") && token.len() > 2 {
-                flags.push((index + 1, token.split('=').next().unwrap_or(token).to_string()));
+                flags.push((
+                    index + 1,
+                    token.split('=').next().unwrap_or(token).to_string(),
+                ));
             }
         }
     }
