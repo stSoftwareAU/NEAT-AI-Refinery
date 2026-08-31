@@ -83,6 +83,72 @@ The downstream orchestration layer may use `jq` (or equivalent) to derive
 `inputs` and `outputs` from a creature export. Refinery itself should not
 parse GRQ version state.
 
+## Corpus contract
+
+The contract lives in the `neat_ai_refinery::corpus` module, so a caller works
+with checked types rather than raw byte arithmetic:
+
+| Type | Owns |
+| --- | --- |
+| `RecordShape` | `inputs`, `outputs`, `record_values`, `bytes_per_record` |
+| `ValueEncoding` | how a value is stored — currently `Float32`, four bytes |
+| `SourceCorpus` | a read-only source, validated on open |
+| `DerivedDestination` | an output path checked against the sources |
+| `CorpusError` | every way the contract can be breached |
+
+```rust
+use neat_ai_refinery::corpus::{RecordShape, SourceCorpus};
+
+let shape = RecordShape::new(2511, 1)?;          // bytes_per_record == 10_048
+let corpus = SourceCorpus::open("trainData-binary", shape)?;
+let first = corpus.read_record(0)?;               // inputs first, then outputs
+```
+
+### Immutable source
+
+**Refinery never writes to a source corpus.** Sources are opened with
+`File::open`, which requests read access only; no code path in the crate opens
+a source for writing, truncates it, appends to it, renames it or removes it.
+Derived corpora are written elsewhere, and `DerivedDestination` rejects an
+output path that resolves to one of the sources — after canonicalisation, so a
+relative path, a `..` segment or a symlink cannot smuggle a write back onto a
+source.
+
+```mermaid
+flowchart LR
+    S[(source corpus<br/>read-only)] -->|File::open| R[SourceCorpus<br/>validated on open]
+    R --> T[transform]
+    T --> D[DerivedDestination<br/>checked ≠ any source]
+    D --> O[(derived corpus)]
+```
+
+### Fatal conditions
+
+Malformed input fails loud rather than being processed approximately:
+
+- a partial trailing record — the size is not a whole multiple of
+  `bytes_per_record`;
+- an empty source, which holds no records at all;
+- a record shape with zero inputs or zero outputs;
+- a record width whose `inputs + outputs` or `× 4` arithmetic overflows;
+- a record index past the end of the corpus;
+- a source directory containing no corpus files.
+
+### Input discovery and ordering
+
+`discover_sources` expands a source path into the files to read, in read order:
+
+1. a regular file is used as-is and yields exactly that one path;
+2. a directory is scanned **non-recursively** — nested directories are skipped,
+   never descended into;
+3. entries whose name begins with `.` are skipped;
+4. remaining entries must resolve to regular files (a symlink to one counts);
+5. the result is sorted by file name, **byte-wise** — not by locale, case or
+   embedded number, so `Shard-1` precedes `shard-10`, which precedes `shard-2`.
+
+Ordering is fixed by these rules alone, so the same source path yields the same
+list on every machine and a derived corpus stays reproducible.
+
 ## Design goals
 
 - Rust-first and highly performant.
