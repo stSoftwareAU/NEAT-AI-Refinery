@@ -380,10 +380,7 @@ fn fails_loud_on_a_source_manifest_it_cannot_read() {
     let error = quantise(&request(&source, &output)).expect_err("a broken manifest is fatal");
 
     assert!(
-        matches!(
-            error,
-            QuantiseError::Transform(TransformError::Manifest(_))
-        ),
+        matches!(error, QuantiseError::Transform(TransformError::Manifest(_))),
         "{error:?}"
     );
     assert!(!output.exists(), "nothing is published");
@@ -467,17 +464,17 @@ fn fails_loud_on_a_partial_trailing_record() {
     let error = quantise(&request(&source, &output)).expect_err("a partial record is fatal");
 
     assert!(
-        matches!(
-            error,
-            QuantiseError::Transform(TransformError::Corpus(_))
-        ),
+        matches!(error, QuantiseError::Transform(TransformError::Corpus(_))),
         "{error:?}"
     );
     assert!(
         !output.exists(),
         "a failed run publishes nothing and leaves no scratch"
     );
-    assert_eq!(entries(temp.path()), BTreeSet::from(["trainData-binary".into()]));
+    assert_eq!(
+        entries(temp.path()),
+        BTreeSet::from(["trainData-binary".into()])
+    );
 }
 
 #[test]

@@ -179,7 +179,9 @@ mod tests {
 
     #[test]
     fn refuses_an_unknown_scheme_rather_than_defaulting() {
-        let error = "int4".parse::<QuantiseScheme>().expect_err("int4 is unknown");
+        let error = "int4"
+            .parse::<QuantiseScheme>()
+            .expect_err("int4 is unknown");
 
         assert!(
             matches!(error, QuantiseError::UnknownScheme { ref scheme } if scheme == "int4"),

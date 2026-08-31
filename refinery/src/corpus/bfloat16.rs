@@ -70,7 +70,10 @@ mod tests {
     fn spans_one_representable_interval() {
         // Seven stored mantissa bits: the neighbours of 1.0 are 2^-7 away, and
         // half of that is the error bound the scheme claims.
-        assert_eq!(to_f32(from_f32(1.0 + INTERVAL_AT_ONE)), 1.0 + INTERVAL_AT_ONE);
+        assert_eq!(
+            to_f32(from_f32(1.0 + INTERVAL_AT_ONE)),
+            1.0 + INTERVAL_AT_ONE
+        );
         assert_eq!(MAX_RELATIVE_ERROR, INTERVAL_AT_ONE / 2.0);
     }
 
