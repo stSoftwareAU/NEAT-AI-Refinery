@@ -49,8 +49,10 @@
 //!
 //! [`sample`] is the first transform built on those primitives — a port of
 //! GRQ's materialised sampler, keeping each record with probability `rate` and
-//! publishing the result atomically. [`cli`] is the argument surface the
-//! `neat_ai_refinery` binary drives it with.
+//! publishing the result atomically. [`quantise`] re-encodes every value in a
+//! narrower format, and [`fuzz`] perturbs values with seeded noise; both leave
+//! the records themselves and their order alone. [`cli`] is the argument
+//! surface the `neat_ai_refinery` binary drives them with.
 //!
 //! # Provenance
 //!
@@ -65,6 +67,7 @@
 
 pub mod cli;
 pub mod corpus;
+pub mod fuzz;
 pub mod manifest;
 pub mod quantise;
 pub mod sample;

@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use neat_ai_refinery::cli::{Cli, CliError, TransformRequest};
+use neat_ai_refinery::fuzz::{fuzz, FuzzOutcome};
 use neat_ai_refinery::manifest::Manifest;
 use neat_ai_refinery::quantise::{quantise, QuantiseOutcome};
 use neat_ai_refinery::sample::{sample, SampleOutcome};
@@ -26,6 +27,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
     match cli.request()? {
         TransformRequest::Sample(request) => report_sample(&sample(&request)?),
         TransformRequest::Quantise(request) => report_quantise(&quantise(&request)?),
+        TransformRequest::Fuzz(request) => report_fuzz(&fuzz(&request)?),
     }
     Ok(())
 }
@@ -54,6 +56,22 @@ fn report_quantise(outcome: &QuantiseOutcome) {
         outcome.storage_reduction() * 100.0,
         outcome.source_bytes,
         outcome.output_bytes
+    );
+    report_manifest(&outcome.manifest_file, &outcome.manifest);
+}
+
+/// Reports a fuzzing run, including the seed needed to reproduce it and every
+/// value the policy could not simply perturb.
+fn report_fuzz(outcome: &FuzzOutcome) {
+    println!(
+        "🏭 {} — {} records, {} values perturbed ({} clamped, {} non-finite preserved) from {} file(s), seed {}",
+        outcome.output_file.display(),
+        outcome.records_written,
+        outcome.values_perturbed,
+        outcome.values_clamped,
+        outcome.values_preserved,
+        outcome.sources.len(),
+        outcome.seed
     );
     report_manifest(&outcome.manifest_file, &outcome.manifest);
 }

@@ -52,8 +52,19 @@ impl ValueEncoding {
     #[must_use]
     pub fn decode(self, bytes: &[u8]) -> Vec<f32> {
         let mut values = Vec::with_capacity(bytes.len() / self.bytes_per_value());
-        self.for_each_value(bytes, |value| values.push(value));
+        self.decode_into(bytes, &mut values);
         values
+    }
+
+    /// Decodes every whole value in `bytes` into `out`, replacing its contents.
+    ///
+    /// A transform that edits values rather than re-encoding them — fuzzing,
+    /// for one — reuses a single buffer across every record, so its working set
+    /// stays one record however large the corpus is.
+    pub fn decode_into(self, bytes: &[u8], out: &mut Vec<f32>) {
+        out.clear();
+        out.reserve(bytes.len() / self.bytes_per_value());
+        self.for_each_value(bytes, |value| out.push(value));
     }
 
     /// Re-encodes one whole record from this encoding into `target`, appending
@@ -299,6 +310,19 @@ mod tests {
         // Every one of these is exactly representable, so the round trip is
         // lossless and the narrow record decodes back to the same values.
         assert_eq!(ValueEncoding::BFloat16.decode(&narrow), values);
+    }
+
+    #[test]
+    fn decodes_into_a_reused_buffer_without_keeping_the_previous_record() {
+        let mut buffer = vec![9.0_f32; 7];
+        let mut bytes = Vec::new();
+        for value in [1.5_f32, -2.25] {
+            ValueEncoding::Float32.encode_into(value, &mut bytes);
+        }
+
+        ValueEncoding::Float32.decode_into(&bytes, &mut buffer);
+
+        assert_eq!(buffer, vec![1.5, -2.25]);
     }
 
     #[test]
