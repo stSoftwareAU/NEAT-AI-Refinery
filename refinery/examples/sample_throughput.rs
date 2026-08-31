@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use neat_ai_refinery::corpus::RecordShape;
+use neat_ai_refinery::manifest::CallerMetadata;
 use neat_ai_refinery::sample::{sample, SampleRate, SampleRequest};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shape,
         rate: SampleRate::new(rate)?,
         seed: Some(20_260_831),
+        metadata: CallerMetadata::default(),
     };
 
     let started = Instant::now();

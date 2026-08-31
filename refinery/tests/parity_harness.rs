@@ -32,6 +32,7 @@ use std::process::Command;
 
 use common::{encode, TempDir};
 use neat_ai_refinery::corpus::RecordShape;
+use neat_ai_refinery::manifest::CallerMetadata;
 use neat_ai_refinery::sample::{sample, SampleRate, SampleRequest};
 
 /// Two inputs and one output — twelve bytes a record, as the unit fixtures use.
@@ -158,6 +159,7 @@ fn run_refinery_sampler(source: &Path, output: &Path, rate: f64, seed: u64) {
         shape: shape(),
         rate: SampleRate::new(rate).expect("valid rate"),
         seed: Some(seed),
+        metadata: CallerMetadata::default(),
     };
     sample(&request).expect("the refinery sampler succeeds");
 }
@@ -214,12 +216,19 @@ fn published_records(which: Sampler, file: &Path) -> Vec<Vec<u8>> {
 }
 
 /// The single corpus file a published directory must hold, and its name.
+///
+/// Refinery also publishes a `manifest.json` beside the corpus — provenance
+/// the GRQ reference has no equivalent of — so the corpus is the one `.bin`
+/// file, and that count is what both samplers are held to.
 fn published_file(which: Sampler, dir: &Path) -> (String, PathBuf) {
-    let names = entries(dir);
+    let names: BTreeSet<String> = entries(dir)
+        .into_iter()
+        .filter(|name| name.ends_with(".bin"))
+        .collect();
     assert_eq!(
         names.len(),
         1,
-        "{}: a published corpus holds exactly one file, found {names:?}",
+        "{}: a published corpus holds exactly one corpus file, found {names:?}",
         which.label()
     );
     let name = names.into_iter().next().expect("one entry");

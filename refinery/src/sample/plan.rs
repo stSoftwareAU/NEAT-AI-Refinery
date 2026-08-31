@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use super::SampleError;
 use crate::corpus::RecordShape;
+use crate::manifest::CallerMetadata;
 
 /// A materialised sampling probability.
 ///
@@ -64,4 +65,6 @@ pub struct SampleRequest {
     /// A seed for a reproducible run; `None` seeds from the operating system,
     /// which is the production default.
     pub seed: Option<u64>,
+    /// Opaque caller metadata to record in the manifest, uninterpreted.
+    pub metadata: CallerMetadata,
 }

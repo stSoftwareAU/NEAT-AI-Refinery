@@ -9,6 +9,7 @@
 //!   --output /path/to/trainData-binary-sampler \
 //!   --inputs 2511 \
 //!   --outputs 1 \
+//!   [--metadata grq_observation_version=42] \
 //!   sample --rate 0.05 [--seed 20260831]
 //! ```
 
@@ -17,6 +18,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 use crate::corpus::RecordShape;
+use crate::manifest::CallerMetadata;
 use crate::sample::{SampleError, SampleRate, SampleRequest};
 
 /// Produce a derived training corpus from an immutable source corpus.
@@ -38,6 +40,13 @@ pub struct Cli {
     /// Output values per record.
     #[arg(long, value_name = "N")]
     pub outputs: usize,
+
+    /// Caller metadata recorded verbatim in the manifest; repeatable.
+    ///
+    /// Refinery never interprets it — it is how an application keeps its own
+    /// facts, such as an observation version, with the derived corpus.
+    #[arg(long, value_name = "KEY=VALUE")]
+    pub metadata: Vec<String>,
 
     /// The transform to run.
     #[command(subcommand)]
@@ -69,8 +78,10 @@ impl Cli {
     ///
     /// # Errors
     ///
-    /// Returns [`SampleError::InvalidRate`] for a rate outside `(0, 1]` and
-    /// [`SampleError::Corpus`] for an impossible record shape.
+    /// Returns [`SampleError::InvalidRate`] for a rate outside `(0, 1]`,
+    /// [`SampleError::Corpus`] for an impossible record shape, and
+    /// [`SampleError::Manifest`] for caller metadata that is not a valid
+    /// `KEY=VALUE` pair.
     pub fn request(&self) -> Result<SampleRequest, SampleError> {
         let Command::Sample(args) = &self.command;
         let shape = RecordShape::new(self.inputs, self.outputs)?;
@@ -81,6 +92,7 @@ impl Cli {
             shape,
             rate: SampleRate::new(args.rate)?,
             seed: args.seed,
+            metadata: CallerMetadata::parse(&self.metadata)?,
         })
     }
 }
