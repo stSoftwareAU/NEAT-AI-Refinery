@@ -1,0 +1,92 @@
+{
+  "tool": {
+    "name": "neat-ai-refinery",
+    "version": "0.1.0"
+  },
+  "host": {
+    "os": "linux",
+    "arch": "aarch64",
+    "family": "unix",
+    "cpu_count": 6
+  },
+  "record_shape": {
+    "inputs": 2511,
+    "outputs": 1,
+    "record_values": 2512,
+    "bytes_per_record": 10048,
+    "encoding": "float32"
+  },
+  "rate": 0.05,
+  "corpus": {
+    "shards": 8,
+    "records_per_shard": 20000,
+    "bytes": 1607680000
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "measurement": {
+        "label": "refinery-1",
+        "elapsed_ms": 438,
+        "peak_rss_kib": 12612,
+        "peak_rss_method": "proc-vmhwm"
+      },
+      "published": {
+        "directory": "/tmp/refinery-soak-28224/trainData-binary-sampler",
+        "file": "sample-5.bin",
+        "bytes": 79027520,
+        "record_count": 7865,
+        "records_read": 160000,
+        "checksum": "4d07a3308141844bfde1c68490fc4d82febc8822948020469987aa5f418bb5fc"
+      }
+    },
+    {
+      "round": 2,
+      "measurement": {
+        "label": "refinery-2",
+        "elapsed_ms": 214,
+        "peak_rss_kib": 13020,
+        "peak_rss_method": "proc-vmhwm"
+      },
+      "published": {
+        "directory": "/tmp/refinery-soak-28224/trainData-binary-sampler",
+        "file": "sample-5.bin",
+        "bytes": 80725632,
+        "record_count": 8034,
+        "records_read": 160000,
+        "checksum": "afcb3093ff8b408afc3f5cb77dd368034b2f3cbc82a0af746e70a76489fbfcff"
+      }
+    },
+    {
+      "round": 3,
+      "measurement": {
+        "label": "refinery-3",
+        "elapsed_ms": 220,
+        "peak_rss_kib": 12976,
+        "peak_rss_method": "proc-vmhwm"
+      },
+      "published": {
+        "directory": "/tmp/refinery-soak-28224/trainData-binary-sampler",
+        "file": "sample-5.bin",
+        "bytes": 79851456,
+        "record_count": 7947,
+        "records_read": 160000,
+        "checksum": "a002916f818e234736e67afa39551e8860aa1588ba1f65948eea6c0d0dfd2fab"
+      }
+    }
+  ],
+  "reference": {
+    "label": "typescript",
+    "elapsed_ms": 642,
+    "peak_rss_kib": 168476,
+    "peak_rss_method": "proc-vmhwm"
+  },
+  "reference_records_written": 7976,
+  "consumer": null,
+  "source_unchanged": true,
+  "atomic_publication": {
+    "failed_run_exit_code": 1,
+    "previous_corpus_intact": true,
+    "scratch_left_behind": 0
+  }
+}

@@ -19,7 +19,11 @@ use serde::{Deserialize, Serialize};
 use super::SoakError;
 
 /// How often the child's memory use is sampled.
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
+///
+/// Fine enough that a run lasting tens of milliseconds is still sampled
+/// several times — a peak read once at exec understates badly — and cheap
+/// enough to be noise beside a multi-second sampling run.
+const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 /// How much of a failed run's diagnostics is carried in the error.
 const STDERR_LIMIT: usize = 4096;

@@ -1,9 +1,11 @@
 # Integrating Refinery into GRQ
 
-Step 3 of the [migration principle](../README.md#migration-principle):
-Refinery's sampler runs in production **behind a rollback switch**, beside the
-TypeScript sampler it was ported from, so the two can be compared before
-anything is removed.
+Steps 3 and 4 of the [migration principle](../README.md#migration-principle):
+Refinery's sampler ran in production behind a rollback switch beside the
+TypeScript sampler it was ported from, and — with the
+[soak evidence](production-soak.md) captured — **Refinery is now the sampler
+GRQ uses by default**. The switch stays, pointing the other way, until the
+TypeScript sampler is removed.
 
 Refinery stays application-agnostic — it knows nothing about GRQ. This page is
 the caller's half of the contract: what GRQ passes in, what it reads back, and
@@ -13,18 +15,21 @@ how a fleet run is rolled back.
 
 | Variable | Values | Meaning |
 | --- | --- | --- |
-| `GRQ_SAMPLER_IMPL` | unset / `typescript` (default) | GRQ's `src/train/Sampler.ts` produces the corpus — the current production path, unchanged |
-| | `refinery` | `neat_ai_refinery sample` produces the corpus |
+| `GRQ_SAMPLER_IMPL` | unset / `refinery` (default) | `neat_ai_refinery sample` produces the corpus |
+| | `typescript` | GRQ's `src/train/Sampler.ts` produces it — the rollback path, unchanged |
 | | anything else | fatal: an unrecognised value is a typo, not a selection |
 | `NEAT_AI_REFINERY_BINARY_PATH` | path | the built binary; `neat_ai_refinery` is resolved from `PATH` when unset |
 
-Rolling back is unsetting `GRQ_SAMPLER_IMPL` — no deploy, no revert, and the
-TypeScript sampler is still the default until the comparison says otherwise.
+Rolling back is `GRQ_SAMPLER_IMPL=typescript` on the affected host — no deploy
+and no revert. With the switch unset and no executable binary found, the run
+fails loud naming both the binary path variable and the rollback value; it does
+not quietly fall back, because a fleet that silently sampled the old way would
+make the comparison meaningless.
 
 ```mermaid
 flowchart TD
-    S{{GRQ_SAMPLER_IMPL}} -->|unset / typescript| T[Sampler.ts<br/>TypeScript sampler]
-    S -->|refinery| R[neat_ai_refinery sample]
+    S{{GRQ_SAMPLER_IMPL}} -->|unset / refinery| R[neat_ai_refinery sample]
+    S -->|typescript| T[Sampler.ts<br/>rollback path]
     S -->|anything else| X[fatal: unrecognised switch]
     T --> L[(trainData-binary-sampler)]
     R --> L
@@ -94,6 +99,11 @@ compared directly without new instrumentation:
 differs by sampling noise around `rate × records_read`, which is the band the
 [parity harness](parity-harness.md) already holds both samplers to.
 
+What that comparison measured, on a corpus of 160 000 production-shaped records,
+is in [`production-soak.md`](production-soak.md): 214 ms and 13 MiB peak RSS for
+Refinery against 642 ms and 165 MiB for the Deno sampler, both reading the whole
+corpus.
+
 ## No silent fallback
 
 A failed Refinery run exits non-zero and publishes nothing; the previously
@@ -102,9 +112,11 @@ TypeScript sampler to rescue it. A hidden fallback would turn a Rust failure
 into a green run whose timings and counts came from the other implementation,
 which is precisely the evidence the soak depends on.
 
-The same rule applies before the run starts: with the switch on and no
+The same rule applies before the run starts: on the default path and with no
 executable binary found, the worker fails loud naming
-`NEAT_AI_REFINERY_BINARY_PATH` instead of quietly using the old path.
+`NEAT_AI_REFINERY_BINARY_PATH` and the `GRQ_SAMPLER_IMPL=typescript` rollback
+instead of quietly using the old path. Every host on the Refinery default needs
+the binary installed; that is the point of the switch staying.
 
 ## Where it lives in GRQ
 

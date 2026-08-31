@@ -46,10 +46,12 @@ Refinery does **not** own:
 
 The existing system is working, so migration is deliberately evolutionary:
 
-1. reproduce the current GRQ sampling behaviour;
-2. prove compatibility against fixed fixtures;
-3. integrate behind a fallback/feature switch;
-4. soak in production;
+1. reproduce the current GRQ sampling behaviour — done;
+2. prove compatibility against fixed fixtures — done, `./parity/run.sh`;
+3. integrate behind a fallback/feature switch — done, `GRQ_SAMPLER_IMPL`;
+4. soak in production — done, `./soak/run.sh` and
+   [`docs/production-soak.md`](docs/production-soak.md); **Refinery is now the
+   GRQ default**, with the switch kept as the rollback;
 5. remove obsolete code only after the new path is proven;
 6. add new transforms such as quantisation and fuzzing afterwards.
 
@@ -245,17 +247,43 @@ The ported behaviour, the deliberate omissions, and where the Rust port is
 stricter than the Deno one are documented in
 [`docs/sampling-semantics.md`](docs/sampling-semantics.md).
 
-### Running it in production behind a switch
+### Running it in production
 
-GRQ selects the sampler with `GRQ_SAMPLER_IMPL`: unset — the default — keeps
-its TypeScript sampler, and `refinery` hands the corpus to this one. A Refinery
-failure fails the run rather than being served quietly from the old path, both
-implementations report the same timing and record-count line so a fleet run can
-compare them, and rolling back is unsetting one variable.
+**Refinery is the producer of GRQ's sampled corpus.** GRQ selects the sampler
+with `GRQ_SAMPLER_IMPL`: unset — the default — runs this one, and `typescript`
+is the rollback to GRQ's own sampler, kept until that sampler is removed. A
+Refinery failure fails the run rather than being served quietly from the old
+path, both implementations report the same timing and record-count line so a
+fleet run can compare them, and rolling back is one environment variable.
 
 The caller's half of the contract — what GRQ passes in, the manifest fields it
 reads the counts back from, and where the switch lives — is in
 [`docs/grq-integration.md`](docs/grq-integration.md).
+
+### Soaking it
+
+The cut-over was gated on measured evidence, captured by a harness rather than
+by hand:
+
+```bash
+./soak/run.sh                    # production shape, 8 × 20 000 records, rate 0.05
+```
+
+A soak runs the release binary repeatedly, re-verifies every published corpus
+against its own manifest, digests the source corpus before and after to prove
+it was never written to, forces a run to fail and checks the live corpus
+survived it byte for byte, and measures both implementations the same way:
+
+| Sampler | Elapsed | Records/s | Peak RSS |
+| --- | --- | --- | --- |
+| Refinery | 214 ms | 747 664 | 13 020 KiB |
+| Deno `Sampler.ts` | 642 ms | 249 221 | 168 476 KiB |
+
+The reports are committed under [`docs/evidence/`](docs/evidence), one per
+host, and `.github/workflows/soak.yml` runs the same soak on macOS and Linux
+for every pull request. What is asserted, what is deliberately not, and how to
+roll the cut-over back are in
+[`docs/production-soak.md`](docs/production-soak.md).
 
 ### Proving it against GRQ
 
@@ -407,6 +435,12 @@ The parity harness is separate because it needs Deno:
 ./parity/run.sh
 ```
 
+So is the production soak, which needs Deno and the release binary:
+
+```bash
+./soak/run.sh
+```
+
 ## Continuous integration
 
 PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
@@ -436,6 +470,7 @@ the full CI graph is still covered:
 | `actionlint.yml` | workflow YAML lint |
 | `markdown-lint.yml` | `markdownlint-cli2` |
 | `parity.yml` | sampler parity against GRQ and `evolveDir` consumption |
+| `soak.yml` | the production soak on macOS and Linux |
 | `cargo-upgrade.yml` | weekly dependency-refresh PR |
 
 Every third-party `uses:` reference is pinned to a 40-character commit SHA with

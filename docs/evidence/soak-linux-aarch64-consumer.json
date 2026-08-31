@@ -1,0 +1,61 @@
+{
+  "tool": {
+    "name": "neat-ai-refinery",
+    "version": "0.1.0"
+  },
+  "host": {
+    "os": "linux",
+    "arch": "aarch64",
+    "family": "unix",
+    "cpu_count": 6
+  },
+  "record_shape": {
+    "inputs": 2,
+    "outputs": 1,
+    "record_values": 3,
+    "bytes_per_record": 12,
+    "encoding": "float32"
+  },
+  "rate": 0.5,
+  "corpus": {
+    "shards": 2,
+    "records_per_shard": 400,
+    "bytes": 9600
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "measurement": {
+        "label": "refinery-1",
+        "elapsed_ms": 5,
+        "peak_rss_kib": 188,
+        "peak_rss_method": "proc-vmhwm"
+      },
+      "published": {
+        "directory": "/tmp/refinery-soak-28471/trainData-binary-sampler",
+        "file": "sample-50.bin",
+        "bytes": 4524,
+        "record_count": 377,
+        "records_read": 800,
+        "checksum": "657481cccccf3ad856c27061ef298a07086455cd313468280e00500edad6194f"
+      }
+    }
+  ],
+  "reference": {
+    "label": "typescript",
+    "elapsed_ms": 17,
+    "peak_rss_kib": 35504,
+    "peak_rss_method": "proc-vmhwm"
+  },
+  "reference_records_written": 412,
+  "consumer": {
+    "consumed": true,
+    "summary": "{\"consumed\":true,\"error\":132225.91286755682,\"generations\":1}"
+  },
+  "source_unchanged": true,
+  "atomic_publication": {
+    "failed_run_exit_code": 1,
+    "previous_corpus_intact": true,
+    "scratch_left_behind": 0
+  }
+}

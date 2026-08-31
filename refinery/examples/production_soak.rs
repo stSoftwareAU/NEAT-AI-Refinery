@@ -74,7 +74,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n{markdown}");
 
     fs::create_dir_all(&options.evidence)?;
-    let stem = format!("soak-{}-{}", report.host.os, report.host.arch);
+    let stem = options
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("soak-{}-{}", report.host.os, report.host.arch));
     let json_path = options.evidence.join(format!("{stem}.json"));
     let markdown_path = options.evidence.join(format!("{stem}.md"));
     fs::write(&json_path, report.to_json()? + "\n")?;
@@ -101,6 +104,7 @@ production_soak — capture Refinery soak evidence for the GRQ cut-over
                    (default $NEAT_AI_REFINERY_BINARY_PATH, else target/release/neat_ai_refinery)
   --parity DIR     the parity/ directory holding the Deno reference sampler
   --evidence DIR   where the report is written (default docs/evidence)
+  --name STEM      file stem for the report (default soak-<os>-<arch>)
   --no-reference   skip the Deno comparison
   --consumer       also run evolve_dir.ts over the published corpus (needs jsr.io)
   --help";
@@ -116,6 +120,7 @@ struct Options {
     binary: PathBuf,
     parity: PathBuf,
     evidence: PathBuf,
+    name: Option<String>,
     no_reference: bool,
     consumer: bool,
     help: bool,
@@ -163,6 +168,7 @@ impl Options {
             "--binary" => self.binary = PathBuf::from(value),
             "--parity" => self.parity = PathBuf::from(value),
             "--evidence" => self.evidence = PathBuf::from(value),
+            "--name" => self.name = Some(value.to_string()),
             other => return Err(format!("unrecognised option {other}\n\n{USAGE}")),
         }
         Ok(())
@@ -196,6 +202,7 @@ impl Default for Options {
             ),
             parity: root.join("parity"),
             evidence: root.join("docs/evidence"),
+            name: None,
             no_reference: false,
             consumer: false,
             help: false,
