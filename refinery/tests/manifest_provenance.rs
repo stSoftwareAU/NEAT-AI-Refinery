@@ -100,7 +100,11 @@ fn records_everything_needed_to_reproduce_and_audit_the_run() {
     assert_eq!(manifest.transform.name, "sample");
     assert_eq!(manifest.transform.seed, Some(42));
     assert_eq!(
-        manifest.transform.parameters.get("rate").and_then(|v| v.as_f64()),
+        manifest
+            .transform
+            .parameters
+            .get("rate")
+            .and_then(|v| v.as_f64()),
         Some(1.0),
         "the transform parameters are recorded: {:?}",
         manifest.transform.parameters
@@ -126,7 +130,10 @@ fn records_everything_needed_to_reproduce_and_audit_the_run() {
             .iter()
             .map(|file| (file.name.clone(), file.bytes))
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from([("shard-a.bin".to_string(), 480), ("shard-b.bin".to_string(), 720)]),
+        BTreeSet::from([
+            ("shard-a.bin".to_string(), 480),
+            ("shard-b.bin".to_string(), 720)
+        ]),
         "each source file is identified by name and byte length"
     );
 
@@ -181,7 +188,11 @@ fn reproduces_the_same_corpus_and_checksum_for_the_same_seed() {
     sample(&request(&source, &other, 0.5, Some(8))).expect("other seed");
 
     let manifest_of = |dir: &Path| Manifest::load(dir.join(MANIFEST_FILE_NAME)).expect("manifest");
-    let (first, again, other) = (manifest_of(&first), manifest_of(&again), manifest_of(&other));
+    let (first, again, other) = (
+        manifest_of(&first),
+        manifest_of(&again),
+        manifest_of(&other),
+    );
 
     assert_eq!(
         first.output.checksum, again.output.checksum,
@@ -235,8 +246,8 @@ fn rejects_caller_metadata_that_cannot_be_recorded_faithfully() {
     ];
 
     for entries in cases {
-        let error = CallerMetadata::parse(&entries)
-            .expect_err(&format!("{entries:?} must be rejected"));
+        let error =
+            CallerMetadata::parse(&entries).expect_err(&format!("{entries:?} must be rejected"));
         assert!(
             matches!(error, ManifestError::InvalidMetadata { .. }),
             "{entries:?} — {error:?}"
@@ -296,7 +307,13 @@ fn writes_no_manifest_into_the_source_corpus() {
     let temp = TempDir::new("manifest-source-untouched");
     let source = source_with(temp.path(), 32);
 
-    sample(&request(&source, &temp.path().join("derived"), 1.0, Some(2))).expect("sampling");
+    sample(&request(
+        &source,
+        &temp.path().join("derived"),
+        1.0,
+        Some(2),
+    ))
+    .expect("sampling");
 
     assert_eq!(
         entries(&source),

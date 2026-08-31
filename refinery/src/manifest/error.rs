@@ -64,7 +64,9 @@ impl fmt::Display for ManifestError {
             Self::InvalidMetadata { entry, reason } => {
                 write!(f, "invalid caller metadata {entry:?}: {reason}")
             }
-            Self::Json { source } => write!(f, "the transformation manifest is not valid JSON: {source}"),
+            Self::Json { source } => {
+                write!(f, "the transformation manifest is not valid JSON: {source}")
+            }
             Self::Io { path, source } => {
                 write!(f, "transformation manifest {}: {source}", path.display())
             }

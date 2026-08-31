@@ -53,6 +53,12 @@ thing of each output.
 | Atomic publication semantics are equivalent | A live corpus holding a stale `sample-99.bin` is replaced **whole**, and neither implementation leaves staging scratch or a renamed-aside `.deleting-*` directory behind | `both_samplers_replace_a_live_corpus_whole_and_leave_no_scratch` |
 | `evolveDir` can consume the produced directory | The published directory is passed to `Creature.evolveDir` as-is; the run must report a finite error, meaning the records were read and scored | `evolve_dir_consumes_a_refinery_published_corpus` |
 
+Refinery also publishes a `manifest.json` beside the corpus (issue #6), which
+the GRQ reference has no equivalent of, so each invariant is asserted over the
+one `.bin` file in the published directory. `evolveDir` consuming that
+directory as published is the evidence the extra file changes nothing for a
+consumer.
+
 The last test has a control —
 `evolve_dir_rejects_a_corpus_refinery_would_never_publish` — which feeds
 `evolveDir` a file ending mid-record, the one thing Refinery's writer cannot
