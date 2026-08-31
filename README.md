@@ -245,6 +245,18 @@ The ported behaviour, the deliberate omissions, and where the Rust port is
 stricter than the Deno one are documented in
 [`docs/sampling-semantics.md`](docs/sampling-semantics.md).
 
+### Running it in production behind a switch
+
+GRQ selects the sampler with `GRQ_SAMPLER_IMPL`: unset — the default — keeps
+its TypeScript sampler, and `refinery` hands the corpus to this one. A Refinery
+failure fails the run rather than being served quietly from the old path, both
+implementations report the same timing and record-count line so a fleet run can
+compare them, and rolling back is unsetting one variable.
+
+The caller's half of the contract — what GRQ passes in, the manifest fields it
+reads the counts back from, and where the switch lives — is in
+[`docs/grq-integration.md`](docs/grq-integration.md).
+
 ### Proving it against GRQ
 
 The port is held to GRQ's sampler by a golden parity harness — Refinery and
