@@ -67,3 +67,4 @@ pub mod cli;
 pub mod corpus;
 pub mod manifest;
 pub mod sample;
+pub mod soak;
