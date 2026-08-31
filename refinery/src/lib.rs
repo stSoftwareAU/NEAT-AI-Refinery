@@ -28,6 +28,14 @@
 //! record, an empty source, an impossible record width and an arithmetic
 //! overflow in the width calculation are all rejected at open time.
 //!
+//! # Streaming primitives
+//!
+//! [`corpus::RecordReader`] streams records out of one or more corpus files
+//! through a single fixed-size buffer, and [`corpus::RecordWriter`] buffers
+//! whole records into a derived corpus. Both are transform-agnostic: they know
+//! record geometry and nothing about sampling, shuffling or any application's
+//! feature layout.
+//!
 //! ```
 //! use neat_ai_refinery::corpus::RecordShape;
 //!
