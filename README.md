@@ -42,6 +42,12 @@ Refinery does **not** own:
 - scorer-side multi-creature evaluation — NEAT-AI-scorer;
 - application-specific orchestration or feature generation — downstream users.
 
+The line between the two is the **artefact**: Refinery owns work that writes a
+new corpus of records to disk, and a sub-sample taken while scoring is runtime
+policy even though it is also called sampling. The decision rule, and the audit
+that applied it to every open NEAT-AI and GRQ issue, are in
+[`docs/corpus-transform-ownership.md`](docs/corpus-transform-ownership.md).
+
 ## Migration principle
 
 The existing system is working, so migration is deliberately evolutionary:
