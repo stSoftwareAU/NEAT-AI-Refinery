@@ -59,7 +59,8 @@ The existing system is working, so migration is deliberately evolutionary:
    [`docs/production-soak.md`](docs/production-soak.md); **Refinery is now the
    GRQ default**, with the switch kept as the rollback;
 5. remove obsolete code only after the new path is proven;
-6. add new transforms such as quantisation and fuzzing afterwards.
+6. add new transforms afterwards — quantisation is done,
+   [`docs/quantisation.md`](docs/quantisation.md); fuzzing is not.
 
 No migration issue should combine behavioural changes with the first sampler port.
 
@@ -99,7 +100,7 @@ with checked types rather than raw byte arithmetic:
 | Type | Owns |
 | --- | --- |
 | `RecordShape` | `inputs`, `outputs`, `record_values`, `bytes_per_record` |
-| `ValueEncoding` | how a value is stored — currently `Float32`, four bytes |
+| `ValueEncoding` | how a value is stored — `Float32` (four bytes) or `BFloat16` (two) |
 | `SourceCorpus` | a read-only source, validated on open |
 | `DerivedDestination` | an output path checked against the sources |
 | `RecordReader` | streaming, bounded-memory reads across one or more files |
@@ -332,6 +333,84 @@ The example builds a synthetic corpus at the production shape and reports
 records/s, read throughput and published size. Behavioural parity comes before
 optimisation, so it reports numbers rather than asserting on them.
 
+## Quantisation
+
+`quantise` is the second transform, and a **representation** one: it re-encodes
+every value in a narrower format and leaves the records themselves — how many,
+and in what order — exactly as it found them.
+
+```bash
+neat_ai_refinery \
+  --source trainData-binary \
+  --output trainData-binary-bf16 \
+  --inputs 2511 --outputs 1 \
+  quantise --scheme bfloat16
+```
+
+- **Scheme** — `bfloat16`, the conservative starting point: an `f32` keeps its
+  sign and its whole exponent and loses sixteen mantissa bits, **rounded to
+  nearest with ties to even** rather than truncated, so the error is symmetric
+  instead of a systematic pull towards zero. There is no default; the scheme
+  decides the error the corpus carries, so it is always stated.
+- **Error** — relative error is bounded by `2⁻⁸` ≈ `3.91e-3` at *every*
+  magnitude, because the exponent survives whole. Decoding is exact, so all
+  error is introduced once, at write time.
+- **Storage** — two bytes a value instead of four: exactly 50% smaller for the
+  same record count.
+- **Deterministic** — quantisation takes no seed and needs none. The same
+  source always produces the same bytes.
+- **Output name** — `quantise-<scheme>.bin`, published atomically with its
+  manifest, as `sample` is.
+
+Measured on Linux aarch64, 8 shards × 20 000 records at the production shape:
+
+| Measure | Result |
+| --- | --- |
+| Storage | 1 533.2 MiB → 766.6 MiB, 50.0% smaller |
+| Throughput | 86 236 records/s, 826 MiB/s read |
+| Max relative error | `3.891e-3`, against a `3.906e-3` bound |
+| Mean relative error | `1.408e-3` |
+
+```bash
+cargo run --release --example quantise_throughput -- [shards] [records-per-shard]
+```
+
+Refinery makes **no claim** that a quantised corpus trains a better model. It
+reports what quantisation costs and what it saves; whether that trade is worth
+taking is a downstream experimental question.
+
+### Composing transforms
+
+Every transform reads a directory of `.bin` files and publishes a directory of
+`.bin` files with a manifest beside it, so transforms compose by being run one
+after another — no pipeline mode, no shared state, and no knowledge of GRQ or
+of each other:
+
+```bash
+neat_ai_refinery --source trainData-binary --output sampled \
+  --inputs 2511 --outputs 1 sample --rate 0.05
+neat_ai_refinery --source sampled --output sampled-bf16 \
+  --inputs 2511 --outputs 1 quantise --scheme bfloat16
+```
+
+```mermaid
+flowchart LR
+    S[(source corpus<br/>float32)] -->|sample --rate 0.05| A[(sampled<br/>float32)]
+    A -->|quantise --scheme bfloat16| B[(sampled-bf16<br/>bfloat16)]
+    T[neat_ai_refinery::transform<br/>discovery · separation · staging · publish] -.-> S
+    T -.-> A
+```
+
+The shared half — source discovery, destination separation, staging and atomic
+publication — lives in `neat_ai_refinery::transform`, and is all either
+transform uses. Discovery ignores `manifest.json`, so it is never mistaken for
+records; and when a source carries a manifest, its declared encoding and record
+width are checked against what the run was told to read, so quantising an
+already quantised corpus fails loud instead of reinterpreting its bytes.
+
+The mapping, the error bounds, the special-value behaviour and the benchmark
+method are in [`docs/quantisation.md`](docs/quantisation.md).
+
 ## Transformation manifest
 
 Every derived corpus is published with its provenance beside it:
@@ -373,6 +452,11 @@ trainData-binary-sampler/
 - **Reproducible** — the transform, its parameters and the seed actually used
   are all recorded, so the same source replays to the same bytes. The output
   checksum is how you prove it did.
+- **`record_shape` describes the published corpus** — what a reader of this
+  directory must decode with. A representation transform such as `quantise`
+  adds a `source_record_shape` beside it recording the layout it read; its
+  absence, as in the `sample` manifest above, means both corpora share one
+  layout.
 - **Never separated from its corpus** — the manifest is written into the
   staging directory *before* the publishing rename, so the atomic swap brings
   corpus and provenance across together. A manifest that cannot be written

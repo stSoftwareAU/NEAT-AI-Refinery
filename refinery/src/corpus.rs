@@ -6,6 +6,7 @@
 //! [`DerivedDestination`] it is handed. See the crate-level documentation for
 //! the immutable-source rule.
 
+mod bfloat16;
 mod derived;
 mod discovery;
 mod error;

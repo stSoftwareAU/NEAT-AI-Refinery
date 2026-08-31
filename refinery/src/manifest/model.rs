@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::{time, CallerMetadata, Checksum, ManifestError};
-use crate::corpus::{RecordShape, ValueEncoding};
+use crate::corpus::RecordShape;
 
 /// The file name a manifest is published under, inside the derived corpus.
 pub const MANIFEST_FILE_NAME: &str = "manifest.json";
@@ -35,8 +35,13 @@ pub struct Manifest {
     pub created_at_unix: u64,
     /// The transform, its parameters and its seed.
     pub transform: TransformRecord,
-    /// The record layout both corpora use.
+    /// The record layout of the **published** corpus — what a reader of this
+    /// directory must decode with.
     pub record_shape: RecordGeometry,
+    /// The record layout of the source, recorded only when a representation
+    /// transform changed it; absent when both corpora share one layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_record_shape: Option<RecordGeometry>,
     /// What was read.
     pub source: SourceIdentity,
     /// What was published.
@@ -64,10 +69,22 @@ impl Manifest {
             created_at_unix,
             transform,
             record_shape,
+            source_record_shape: None,
             source,
             output,
             metadata,
         }
+    }
+
+    /// Records the source layout a representation transform read, when it
+    /// differs from the published one.
+    ///
+    /// A transform that leaves the layout alone must not call this: an absent
+    /// `source_record_shape` is how a reader knows both corpora share a layout.
+    #[must_use]
+    pub fn with_source_record_shape(mut self, shape: RecordGeometry) -> Self {
+        self.source_record_shape = Some(shape);
+        self
     }
 
     /// Writes the manifest as `manifest.json` inside `directory`, returning the
@@ -177,9 +194,7 @@ impl From<RecordShape> for RecordGeometry {
             outputs: shape.outputs(),
             record_values: shape.record_values(),
             bytes_per_record: shape.bytes_per_record(),
-            encoding: match shape.encoding() {
-                ValueEncoding::Float32 => "float32".to_string(),
-            },
+            encoding: shape.encoding().name().to_string(),
         }
     }
 }
@@ -238,6 +253,7 @@ pub struct OutputArtefact {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::corpus::ValueEncoding;
 
     fn geometry() -> RecordGeometry {
         RecordShape::new(2, 1).expect("valid shape").into()
@@ -277,6 +293,50 @@ mod tests {
         assert_eq!(geometry.record_values, 3);
         assert_eq!(geometry.bytes_per_record, 12);
         assert_eq!(geometry.encoding, "float32");
+    }
+
+    #[test]
+    fn leaves_the_source_layout_out_when_a_transform_does_not_change_it() {
+        let manifest = manifest();
+        let json = serde_json::to_string(&manifest).expect("encode the manifest");
+
+        assert_eq!(manifest.source_record_shape, None);
+        assert!(
+            !json.contains("source_record_shape"),
+            "a layout-preserving transform writes no source_record_shape: {json}"
+        );
+    }
+
+    #[test]
+    fn records_the_source_layout_when_a_transform_changes_it() {
+        let narrow: RecordGeometry = RecordShape::with_encoding(2, 1, ValueEncoding::BFloat16)
+            .expect("valid shape")
+            .into();
+        let manifest = Manifest::new(
+            TransformRecord::new("quantise", BTreeMap::new(), None),
+            narrow,
+            SourceIdentity::new(PathBuf::from("/data"), Vec::new(), 0),
+            OutputArtefact {
+                file: "quantise-bfloat16.bin".to_string(),
+                record_count: 0,
+                bytes: 0,
+                checksum: Checksum {
+                    algorithm: "sha256".to_string(),
+                    value: "00".repeat(32),
+                },
+            },
+            CallerMetadata::default(),
+        )
+        .with_source_record_shape(geometry());
+
+        assert_eq!(manifest.record_shape.encoding, "bfloat16");
+        assert_eq!(manifest.record_shape.bytes_per_record, 6);
+        let source = manifest
+            .source_record_shape
+            .as_ref()
+            .expect("the source layout is recorded");
+        assert_eq!(source.encoding, "float32");
+        assert_eq!(source.bytes_per_record, 12);
     }
 
     #[test]
