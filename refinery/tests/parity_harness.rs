@@ -39,6 +39,24 @@ const INPUTS: usize = 2;
 const OUTPUTS: usize = 1;
 const BYTES_PER_RECORD: usize = (INPUTS + OUTPUTS) * 4;
 
+/// Permissions `evolve_dir.ts` runs under.
+///
+/// `--allow-net=jsr.io` is what NEAT-AI needs to fetch its WASM activation
+/// bundle the first time it runs on a machine; afterwards the bundle is served
+/// from its own cache directory and no request is made. A developer machine
+/// that has run the harness before therefore passes without the flag while a
+/// clean CI runner cannot, so the permission is granted here rather than left
+/// to the cache. It is scoped to the host the pinned `jsr:@stsoftware/neat-ai`
+/// dependency is published on — no wider.
+const EVOLVE_DIR_PERMISSIONS: &[&str] = &[
+    "--allow-read",
+    "--allow-write",
+    "--allow-env",
+    "--allow-run",
+    "--allow-sys",
+    "--allow-net=jsr.io",
+];
+
 /// Which sampler produced an output — both are held to the same invariants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Sampler {
@@ -479,13 +497,7 @@ fn evolve_dir_consumes_a_refinery_published_corpus() {
     // same path, same `sample-100.bin` name, same fixed-width records.
     let stdout = run_deno(
         "evolve_dir.ts",
-        &[
-            "--allow-read",
-            "--allow-write",
-            "--allow-env",
-            "--allow-run",
-            "--allow-sys",
-        ],
+        EVOLVE_DIR_PERMISSIONS,
         &[
             "--corpus",
             &output.to_string_lossy(),
@@ -522,13 +534,7 @@ fn evolve_dir_rejects_a_corpus_refinery_would_never_publish() {
 
     let stdout = run_deno(
         "evolve_dir.ts",
-        &[
-            "--allow-read",
-            "--allow-write",
-            "--allow-env",
-            "--allow-run",
-            "--allow-sys",
-        ],
+        EVOLVE_DIR_PERMISSIONS,
         &[
             "--corpus",
             &corpus.to_string_lossy(),

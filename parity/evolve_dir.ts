@@ -12,8 +12,14 @@
  *
  * ```bash
  * deno run --allow-read --allow-write --allow-env --allow-run --allow-sys \
+ *   --allow-net=jsr.io \
  *   evolve_dir.ts --corpus <dir> --inputs 2 --outputs 1 [--expect-failure]
  * ```
+ *
+ * NEAT-AI fetches its WASM activation bundle from `jsr.io` the first time it
+ * runs on a machine and serves it from its own cache afterwards, so the net
+ * permission is needed on a clean checkout even though a warm machine never
+ * uses it.
  *
  * On success a single JSON object is printed on stdout:
  * `{"consumed":true,"error":0.0474…,"generations":1}`. `--expect-failure`
@@ -96,6 +102,27 @@ async function consume(options: Options): Promise<{
   return { error: result.error, generations: result.generation ?? 0 };
 }
 
+/**
+ * Is `e` — or anything it was caused by — a sandbox fault rather than a
+ * verdict on the corpus?
+ *
+ * The control below asserts that NEAT-AI *rejects* a malformed corpus, and a
+ * missing permission raises from the same `await`. Without this check a
+ * runner that denied net access would report the rejection the control is
+ * looking for and the gate would pass on an environment fault.
+ */
+function isEnvironmentFault(e: unknown): boolean {
+  for (let cause = e; cause instanceof Error; cause = cause.cause) {
+    if (
+      cause instanceof Deno.errors.NotCapable ||
+      cause instanceof Deno.errors.PermissionDenied
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 if (import.meta.main) {
   const options = parseOptions(Deno.args);
 
@@ -103,6 +130,14 @@ if (import.meta.main) {
     try {
       await consume(options);
     } catch (e) {
+      if (isEnvironmentFault(e)) {
+        console.error(
+          `evolveDir could not run: ${
+            e instanceof Error ? e.message : String(e)
+          } — this is a sandbox fault, not a rejected corpus`,
+        );
+        Deno.exit(1);
+      }
       console.log(
         JSON.stringify({
           consumed: false,
