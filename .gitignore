@@ -4,3 +4,8 @@
 *.log
 .idea/
 .vscode/
+
+# Vibe Coder worker scratch — never part of a change
+.heartbeat*
+.vibe_default_branch
+.pr_response_message
