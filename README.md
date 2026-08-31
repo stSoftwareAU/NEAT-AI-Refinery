@@ -57,8 +57,8 @@ No migration issue should combine behavioural changes with the first sampler por
 
 ## Record shape
 
-Refinery should receive the record shape explicitly. A caller such as GRQ may
-derive the values from the current fittest creature JSON and pass them in.
+Refinery receives the record shape explicitly. A caller such as GRQ may derive
+the values from the current fittest creature JSON and pass them in.
 
 For example:
 
@@ -197,6 +197,60 @@ Malformed input fails loud rather than being processed approximately:
 
 Ordering is fixed by these rules alone, so the same source path yields the same
 list on every machine and a derived corpus stays reproducible.
+
+## Materialised sampling
+
+`sample` is the first transform, a port of GRQ's `src/train/Sampler.ts`. It
+keeps each source record independently with probability `--rate` and publishes
+the result as a fresh derived corpus:
+
+```bash
+neat_ai_refinery \
+  --source trainData-binary \
+  --output trainData-binary-sampler \
+  --inputs 2511 --outputs 1 \
+  sample --rate 0.05 [--seed 20260831]
+```
+
+```mermaid
+flowchart LR
+    S[(source .bin shards)] --> O[shuffled file order]
+    O --> B[keep each record<br/>with probability rate]
+    B --> F[shuffle the kept records<br/>of that file]
+    F --> W[staging dir<br/>sample-5.bin]
+    W --> P[atomic rename]
+    P --> L[(live derived corpus)]
+```
+
+- **Rate range** — `0 < rate <= 1`, the range the Deno sampler enforces.
+  Anything else, `NaN` included, is rejected before a file is opened.
+- **Output name** — `sample-<percent>.bin`, the rate rounded to a whole
+  percentage, so `--rate 0.05` publishes `sample-5.bin`.
+- **Atomic publish** — the corpus is built in a staging directory beside the
+  output and swapped in with `rename(2)`. A reader resolving the path sees the
+  previous corpus or the new one, never an empty or half-built directory.
+- **Failure** — a malformed record, a missing corpus file or a failed write
+  aborts the run with a non-zero exit; the staging directory is removed and the
+  previously published corpus is left exactly as it was.
+- **Seed** — omit `--seed` and the run seeds from the operating system, as
+  production does. The seed used is always reported, so any run can be
+  replayed. A given seed reproduces a sample byte for byte.
+- **Immutability** — a source and output directory that overlap are refused,
+  either way round, because publishing replaces the whole output directory.
+
+The ported behaviour, the deliberate omissions, and where the Rust port is
+stricter than the Deno one are documented in
+[`docs/sampling-semantics.md`](docs/sampling-semantics.md).
+
+### Measuring it
+
+```bash
+cargo run --release --example sample_throughput -- [shards] [records-per-shard] [rate]
+```
+
+The example builds a synthetic corpus at the production shape and reports
+records/s, read throughput and published size. Behavioural parity comes before
+optimisation, so it reports numbers rather than asserting on them.
 
 ## Design goals
 

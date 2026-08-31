@@ -44,8 +44,17 @@
 //! assert_eq!(shape.bytes_per_record(), 10_048);
 //! # Ok::<(), neat_ai_refinery::corpus::CorpusError>(())
 //! ```
+//!
+//! # Transforms
+//!
+//! [`sample`] is the first transform built on those primitives — a port of
+//! GRQ's materialised sampler, keeping each record with probability `rate` and
+//! publishing the result atomically. [`cli`] is the argument surface the
+//! `neat_ai_refinery` binary drives it with.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod cli;
 pub mod corpus;
+pub mod sample;
