@@ -49,6 +49,17 @@ pub enum CorpusError {
         /// Records the corpus actually holds.
         record_count: u64,
     },
+    /// A stream was opened over no sources at all.
+    EmptySourceList,
+    /// A record offered to a writer is not exactly one record wide.
+    RecordLengthMismatch {
+        /// The destination being written.
+        path: PathBuf,
+        /// Bytes a whole record occupies.
+        bytes_per_record: usize,
+        /// Bytes actually offered.
+        actual: usize,
+    },
     /// A source path is neither a regular file nor a directory.
     UnsupportedSourceKind {
         /// The offending path.
@@ -118,6 +129,18 @@ impl fmt::Display for CorpusError {
             } => write!(
                 f,
                 "record {index} is out of range: the corpus holds {record_count} records"
+            ),
+            Self::EmptySourceList => {
+                write!(f, "no source corpus files were given to read")
+            }
+            Self::RecordLengthMismatch {
+                path,
+                bytes_per_record,
+                actual,
+            } => write!(
+                f,
+                "derived corpus {}: a record is {bytes_per_record} bytes, but {actual} bytes were offered",
+                path.display()
             ),
             Self::UnsupportedSourceKind { path } => write!(
                 f,

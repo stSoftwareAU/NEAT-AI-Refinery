@@ -94,6 +94,8 @@ with checked types rather than raw byte arithmetic:
 | `ValueEncoding` | how a value is stored — currently `Float32`, four bytes |
 | `SourceCorpus` | a read-only source, validated on open |
 | `DerivedDestination` | an output path checked against the sources |
+| `RecordReader` | streaming, bounded-memory reads across one or more files |
+| `RecordWriter` | buffered whole-record writes to a derived destination |
 | `CorpusError` | every way the contract can be breached |
 
 ```rust
@@ -103,6 +105,53 @@ let shape = RecordShape::new(2511, 1)?;          // bytes_per_record == 10_048
 let corpus = SourceCorpus::open("trainData-binary", shape)?;
 let first = corpus.read_record(0)?;               // inputs first, then outputs
 ```
+
+### Streaming primitives
+
+`RecordReader` and `RecordWriter` are the I/O foundation the transforms are
+built on. They carry no sampling policy — a transform decides which records to
+keep; the primitives only move whole records.
+
+```rust
+use neat_ai_refinery::corpus::{
+    discover_sources, DerivedDestination, RecordReader, RecordShape, RecordWriter,
+};
+
+let shape = RecordShape::new(2511, 1)?;
+let sources = discover_sources("trainData-binary")?;
+let destination = DerivedDestination::new("trainData-binary-sampler", &sources)?;
+
+let mut reader = RecordReader::open(&sources, shape)?;
+let mut writer = RecordWriter::create(&destination, shape)?;
+while let Some(record) = reader.next_record() {
+    writer.write_record(record?)?;      // a transform filters or edits here
+}
+let records = writer.finish()?;
+```
+
+```mermaid
+flowchart LR
+    F1[(shard-a)] --> B[fixed 256 KiB buffer<br/>one record handed out at a time]
+    F2[(shard-b)] --> B
+    B --> T[transform]
+    T --> W[write buffer<br/>write_all, whole records only]
+    W --> O[(derived corpus)]
+```
+
+The reader's working set is one buffer, whatever the corpus size: records that
+straddle a refill are compacted to the front rather than growing the buffer.
+Files are consumed in the order given, and each is validated as it is read —
+a file ending mid-record raises `PartialRecord` naming the path, its byte
+length, the record width and the trailing bytes, and one holding no records at
+all raises `EmptySource`. An error ends the stream rather than skipping past a
+corpus that could not be interpreted.
+
+The writer accepts records of exactly `bytes_per_record` bytes — anything else
+is a `RecordLengthMismatch` — buffers them, and writes with `write_all`, so a
+short write is retried instead of truncating the output. `finish` flushes the
+tail and reports the record count; a writer dropped with records still buffered
+flushes them and panics if that flush fails, so buffered records are never lost
+in silence.
 
 ### Immutable source
 
