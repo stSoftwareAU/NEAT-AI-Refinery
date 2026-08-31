@@ -242,6 +242,37 @@ The ported behaviour, the deliberate omissions, and where the Rust port is
 stricter than the Deno one are documented in
 [`docs/sampling-semantics.md`](docs/sampling-semantics.md).
 
+### Proving it against GRQ
+
+The port is held to GRQ's sampler by a golden parity harness — Refinery and
+the extracted `Sampler.ts` reference run over the same fixture corpora, and
+both must satisfy the same invariants:
+
+```bash
+./parity/run.sh
+```
+
+```mermaid
+flowchart LR
+    F[fixed corpus] --> R[refinery sampler]
+    F --> G[golden GRQ reference]
+    R --> I{same invariants?}
+    G --> I
+    R --> E[NEAT-AI evolveDir<br/>consumes the published corpus]
+```
+
+Whole fixed-width records only, every record traced back to the source, the
+requested share kept, the order randomised, the same published file name, the
+source untouched, the live corpus replaced whole — and NEAT-AI's `evolveDir`
+opening a Refinery-published corpus unchanged. Byte-for-byte equality is not
+the target: GRQ draws from `Math.random()` with no seam to seed it.
+
+The harness, the invariant-to-test map and the GRQ commit the reference was
+extracted from are documented in
+[`docs/parity-harness.md`](docs/parity-harness.md). It needs Deno; a plain
+`cargo test` skips those tests with a notice when Deno is absent, and
+`.github/workflows/parity.yml` is the gate that enforces them.
+
 ### Measuring it
 
 ```bash
@@ -284,6 +315,12 @@ Before raising a PR, run the full local gate — it mirrors CI:
 `actionlint` are used when installed and skipped with a notice otherwise
 (CI always runs them).
 
+The parity harness is separate because it needs Deno:
+
+```bash
+./parity/run.sh
+```
+
 ## Continuous integration
 
 PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
@@ -312,6 +349,7 @@ the full CI graph is still covered:
 | `sbom.yml` | CycloneDX SBOM artefact |
 | `actionlint.yml` | workflow YAML lint |
 | `markdown-lint.yml` | `markdownlint-cli2` |
+| `parity.yml` | sampler parity against GRQ and `evolveDir` consumption |
 | `cargo-upgrade.yml` | weekly dependency-refresh PR |
 
 Every third-party `uses:` reference is pinned to a 40-character commit SHA with
