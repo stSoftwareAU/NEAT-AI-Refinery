@@ -34,8 +34,8 @@ pub struct SampleOutcome {
 /// # Errors
 ///
 /// Returns [`SampleError::NoCorpusFiles`] for a source directory with no
-/// `.bin` files, [`SampleError::OutputInsideSource`] when the derived corpus
-/// would land on or inside the source, [`SampleError::Corpus`] for a malformed
+/// `.bin` files, [`SampleError::OverlappingCorpora`] when the derived corpus
+/// and the source overlap on disk, [`SampleError::Corpus`] for a malformed
 /// record or a failed write, [`SampleError::Publish`] when the swap fails, and
 /// [`SampleError::Io`] for any other filesystem failure.
 pub fn sample(request: &SampleRequest) -> Result<SampleOutcome, SampleError> {
@@ -125,18 +125,21 @@ fn corpus_files(source: &Path) -> Result<Vec<PathBuf>, SampleError> {
     Ok(files)
 }
 
-/// Rejects an output directory that resolves onto or inside the source.
+/// Rejects an output directory that overlaps the source corpus.
 ///
-/// Publishing renames the whole output directory, so an output inside the
-/// source would put a source corpus one rename away from deletion. Resolving
-/// both paths first means a relative path, a `..` segment or a symlink cannot
-/// hide the overlap.
+/// Publishing renames the whole output directory aside and deletes it, so
+/// either nesting is fatal: an output inside the source, and a source inside
+/// the output, both put an immutable source corpus one rename away from
+/// deletion. Resolving both paths first means a relative path, a `..` segment
+/// or a symlink cannot hide the overlap.
 fn check_separation(source: &Path, output: &Path) -> Result<(), SampleError> {
     let resolved_source = fs::canonicalize(source).map_err(|e| SampleError::io(source, e))?;
     let resolved_output = resolve_output(output)?;
 
-    if resolved_output.starts_with(&resolved_source) {
-        return Err(SampleError::OutputInsideSource {
+    if resolved_output.starts_with(&resolved_source)
+        || resolved_source.starts_with(&resolved_output)
+    {
+        return Err(SampleError::OverlappingCorpora {
             output: resolved_output,
             source: resolved_source,
         });

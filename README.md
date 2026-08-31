@@ -235,8 +235,8 @@ flowchart LR
 - **Seed** — omit `--seed` and the run seeds from the operating system, as
   production does. The seed used is always reported, so any run can be
   replayed. A given seed reproduces a sample byte for byte.
-- **Immutability** — an output that resolves onto or inside the source
-  directory is refused, because publishing replaces the whole output directory.
+- **Immutability** — a source and output directory that overlap are refused,
+  either way round, because publishing replaces the whole output directory.
 
 The ported behaviour, the deliberate omissions, and where the Rust port is
 stricter than the Deno one are documented in

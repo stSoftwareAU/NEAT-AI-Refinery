@@ -24,11 +24,11 @@ pub enum SampleError {
         /// The directory that was scanned.
         path: PathBuf,
     },
-    /// The derived corpus would be published onto or inside the source.
-    OutputInsideSource {
+    /// The derived corpus and the source corpus overlap on disk.
+    OverlappingCorpora {
         /// The rejected output directory.
         output: PathBuf,
-        /// The source directory it resolves into.
+        /// The source directory it overlaps.
         source: PathBuf,
     },
     /// The corpus contract was breached while reading or writing records.
@@ -79,9 +79,9 @@ impl fmt::Display for SampleError {
                 "source directory {} holds no .bin corpus files",
                 path.display()
             ),
-            Self::OutputInsideSource { output, source } => write!(
+            Self::OverlappingCorpora { output, source } => write!(
                 f,
-                "derived corpus {} is inside the source corpus {} — sources are immutable",
+                "derived corpus {} overlaps the source corpus {} — publishing replaces the whole output directory, and sources are immutable",
                 output.display(),
                 source.display()
             ),

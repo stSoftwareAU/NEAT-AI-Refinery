@@ -72,11 +72,12 @@ rather than being processed approximately.
 | A source file that ends mid-record | throws `Invalid number of bytes read` | `CorpusError::PartialRecord`, naming the path, size, record width and trailing bytes |
 | A zero-byte `.bin` file | read returns 0, the file is silently skipped | `CorpusError::EmptySource` — fatal |
 | A source directory holding no `.bin` files | writes an empty sample | `SampleError::NoCorpusFiles` — fatal |
-| An output directory on or inside the source | not checked | `SampleError::OutputInsideSource` — fatal |
+| A source and output directory that overlap | not checked | `SampleError::OverlappingCorpora` — fatal |
 
-The last two matter because publishing renames the whole output directory: an
-output resolving inside the source would put an immutable source corpus one
-rename away from deletion.
+The last two matter because publishing renames the whole output directory
+aside and deletes it. Either nesting — the output inside the source, or the
+source inside the output — would put an immutable source corpus one rename
+away from deletion, so both are refused before a file is opened.
 
 ## Deliberately not ported
 

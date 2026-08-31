@@ -331,7 +331,7 @@ fn refuses_to_publish_onto_the_source_directory() {
         .expect_err("publishing over the source would destroy it");
 
     assert!(
-        matches!(error, SampleError::OutputInsideSource { .. }),
+        matches!(error, SampleError::OverlappingCorpora { .. }),
         "{error:?}"
     );
     assert_eq!(
@@ -350,7 +350,28 @@ fn refuses_to_publish_inside_the_source_directory() {
         .expect_err("a derived corpus inside the source is rejected");
 
     assert!(
-        matches!(error, SampleError::OutputInsideSource { .. }),
+        matches!(error, SampleError::OverlappingCorpora { .. }),
         "{error:?}"
+    );
+}
+
+#[test]
+fn refuses_to_publish_over_a_directory_holding_the_source() {
+    let temp = TempDir::new("sample-around-source");
+    let (source, _) = source_with(temp.path(), 4);
+
+    // Publishing renames the whole output directory aside and deletes it, so
+    // an output wrapping the source would take the source with it.
+    let error = sample(&request(&source, temp.path(), 1.0, Some(1)))
+        .expect_err("an output holding the source is rejected");
+
+    assert!(
+        matches!(error, SampleError::OverlappingCorpora { .. }),
+        "{error:?}"
+    );
+    assert_eq!(
+        entries(&source),
+        BTreeSet::from(["shard-a.bin".into()]),
+        "the source survives the rejected run"
     );
 }
