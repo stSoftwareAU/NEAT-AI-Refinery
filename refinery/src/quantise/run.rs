@@ -7,7 +7,10 @@ use crate::corpus::{DerivedDestination, RecordReader, RecordWriter};
 use crate::manifest::{
     Checksum, Manifest, OutputArtefact, SourceIdentity, TransformRecord, MANIFEST_FILE_NAME,
 };
-use crate::transform::{corpus_files, file_bytes, resolved_source, source_file, StagedCorpus};
+use crate::transform::{
+    corpus_files, file_bytes, resolved_source, source_file, source_manifest, source_manifest_path,
+    StagedCorpus,
+};
 
 /// The transform name recorded in the manifest.
 const TRANSFORM_NAME: &str = "quantise";
@@ -144,14 +147,12 @@ pub fn quantise(request: &QuantiseRequest) -> Result<QuantiseOutcome, QuantiseEr
 /// rather than producing a corpus of reinterpreted bytes. A source with no
 /// manifest — a raw training corpus — is read as the caller described it.
 fn check_source_declaration(source: &Path, request: &QuantiseRequest) -> Result<(), QuantiseError> {
-    let path = source.join(MANIFEST_FILE_NAME);
-    if !path.exists() {
-        return Ok(());
-    }
-
     // A manifest that is present but unreadable is a fault, not an absence:
     // reading past it would be guessing at the corpus it describes.
-    let manifest = Manifest::load(&path)?;
+    let Some(manifest) = source_manifest(source)? else {
+        return Ok(());
+    };
+    let path = source_manifest_path(source);
     let expected = request.scheme.source_encoding();
 
     if manifest.record_shape.encoding != expected.name() {

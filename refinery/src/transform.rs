@@ -6,10 +6,10 @@
 //! swapped in atomically, and how those steps fail — lives here rather than
 //! inside any one transform.
 //!
-//! That is what makes transforms composable: [`sample`](crate::sample) and
-//! [`quantise`](crate::quantise) publish corpora of the same shape, with the
-//! same provenance, so one can be run over the output of the other with no
-//! knowledge of either on the part of the caller.
+//! That is what makes transforms composable: [`sample`](crate::sample),
+//! [`quantise`](crate::quantise) and [`fuzz`](crate::fuzz) publish corpora of
+//! the same shape, with the same provenance, so one can be run over the output
+//! of another with no knowledge of either on the part of the caller.
 //!
 //! ```text
 //! source corpus ──▶ transform ──▶ staging dir ──▶ atomic rename ──▶ derived corpus
@@ -21,5 +21,7 @@ mod scan;
 mod staging;
 
 pub use error::TransformError;
-pub use scan::{corpus_files, file_bytes, resolved_source, source_file};
+pub use scan::{
+    corpus_files, file_bytes, resolved_source, source_file, source_manifest, source_manifest_path,
+};
 pub use staging::StagedCorpus;

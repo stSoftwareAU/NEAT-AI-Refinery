@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use super::TransformError;
 use crate::corpus::discover_sources;
-use crate::manifest::SourceFile;
+use crate::manifest::{Manifest, SourceFile, MANIFEST_FILE_NAME};
 
 /// The `.bin` corpus files in `source`, in discovery order.
 ///
@@ -31,6 +31,32 @@ pub fn corpus_files(source: &Path) -> Result<Vec<PathBuf>, TransformError> {
         });
     }
     Ok(files)
+}
+
+/// The manifest a Refinery-published source carries, when it has one.
+///
+/// A transform reading another transform's output need not take the caller's
+/// word for the corpus layout: the manifest states it. A raw training corpus
+/// has none, and `Ok(None)` says so. A manifest that is present but unreadable
+/// is a fault rather than an absence — reading past it would be guessing at the
+/// corpus it describes.
+///
+/// # Errors
+///
+/// Returns [`TransformError::Manifest`] when a manifest is present and cannot
+/// be read.
+pub fn source_manifest(source: &Path) -> Result<Option<Manifest>, TransformError> {
+    let path = source.join(MANIFEST_FILE_NAME);
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(Some(Manifest::load(&path)?))
+}
+
+/// The path a source corpus' manifest would occupy, for an error to name.
+#[must_use]
+pub fn source_manifest_path(source: &Path) -> PathBuf {
+    source.join(MANIFEST_FILE_NAME)
 }
 
 /// Identifies one source file by name and byte length.

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use clap::Parser;
 use neat_ai_refinery::cli::{Cli, CliError, Command, TransformRequest};
+use neat_ai_refinery::fuzz::{FuzzDistribution, FuzzError, FuzzMode, FuzzRequest, FuzzTargets};
 use neat_ai_refinery::quantise::{QuantiseError, QuantiseScheme};
 use neat_ai_refinery::sample::{SampleError, SampleRequest};
 
@@ -252,6 +253,182 @@ fn carries_caller_metadata_into_a_quantise_request() {
     else {
         panic!("expected a quantise request");
     };
+
+    assert_eq!(request.metadata.get("grq_observation_version"), Some("42"));
+}
+
+/// The `fuzz` invocation documented in the README.
+fn documented_fuzz_invocation() -> Vec<&'static str> {
+    vec![
+        "neat_ai_refinery",
+        "--source",
+        "/data/trainData-binary",
+        "--output",
+        "/data/trainData-binary-fuzzed",
+        "--inputs",
+        "2511",
+        "--outputs",
+        "1",
+        "fuzz",
+        "--distribution",
+        "gaussian",
+        "--scale",
+        "0.01",
+        "--mode",
+        "relative",
+    ]
+}
+
+/// The fuzzing request behind a parsed command line.
+fn fuzz_request(argv: Vec<&str>) -> Result<FuzzRequest, CliError> {
+    match Cli::try_parse_from(argv)
+        .expect("clap accepts the arguments")
+        .request()?
+    {
+        TransformRequest::Fuzz(request) => Ok(*request),
+        other => panic!("expected a fuzz request, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_the_documented_fuzz_invocation() {
+    let cli =
+        Cli::try_parse_from(documented_fuzz_invocation()).expect("the documented shape parses");
+
+    let Command::Fuzz(args) = &cli.command else {
+        panic!("the documented invocation is a fuzz run");
+    };
+    assert_eq!(args.distribution, "gaussian");
+    assert_eq!(args.scale, 0.01);
+    assert_eq!(args.mode, "relative");
+    assert_eq!(args.clamp_min, None);
+    assert_eq!(args.clamp_max, None);
+    assert_eq!(args.seed, None);
+
+    let request = fuzz_request(documented_fuzz_invocation()).expect("the request is valid");
+    assert_eq!(request.policy.distribution(), FuzzDistribution::Gaussian);
+    assert_eq!(request.policy.scale(), 0.01);
+    assert_eq!(request.policy.mode(), FuzzMode::Relative);
+    // The record layout is unchanged by fuzzing, so there is one shape.
+    assert_eq!(request.shape.bytes_per_record(), 10_048);
+}
+
+#[test]
+fn targets_inputs_unless_the_caller_asks_for_more() {
+    let request = fuzz_request(documented_fuzz_invocation()).expect("the request is valid");
+
+    assert_eq!(
+        request.policy.targets(),
+        FuzzTargets::Inputs,
+        "an expected output is never perturbed by default"
+    );
+
+    let mut argv = documented_fuzz_invocation();
+    argv.extend(["--targets", "all"]);
+    let explicit = fuzz_request(argv).expect("the request is valid");
+
+    assert_eq!(explicit.policy.targets(), FuzzTargets::All);
+}
+
+#[test]
+fn carries_the_bounds_and_the_seed_into_the_policy() {
+    let mut argv = documented_fuzz_invocation();
+    argv.extend([
+        "--clamp-min",
+        "-1",
+        "--clamp-max",
+        "1",
+        "--seed",
+        "20260831",
+    ]);
+
+    let request = fuzz_request(argv).expect("the request is valid");
+
+    assert_eq!(request.policy.bounds().min(), Some(-1.0));
+    assert_eq!(request.policy.bounds().max(), Some(1.0));
+    assert_eq!(request.seed, Some(20_260_831));
+}
+
+#[test]
+fn rejects_a_distribution_mode_or_target_refinery_does_not_offer() {
+    let replace = |flag: &'static str, value: &'static str| {
+        let mut argv = documented_fuzz_invocation();
+        match argv.iter().position(|arg| *arg == flag) {
+            Some(index) => argv[index + 1] = value,
+            None => argv.extend([flag, value]),
+        }
+        argv
+    };
+
+    assert!(matches!(
+        fuzz_request(replace("--distribution", "cauchy")).expect_err("validated"),
+        CliError::Fuzz(FuzzError::UnknownDistribution { .. })
+    ));
+    assert!(matches!(
+        fuzz_request(replace("--mode", "multiplicative")).expect_err("validated"),
+        CliError::Fuzz(FuzzError::UnknownMode { .. })
+    ));
+    assert!(matches!(
+        fuzz_request(replace("--targets", "everything")).expect_err("validated"),
+        CliError::Fuzz(FuzzError::UnknownTargets { .. })
+    ));
+}
+
+#[test]
+fn rejects_a_scale_that_is_not_a_positive_finite_number() {
+    for scale in ["0", "-1", "nan", "inf"] {
+        let mut argv = documented_fuzz_invocation();
+        let index = argv
+            .iter()
+            .position(|arg| *arg == "--scale")
+            .expect("--scale is present");
+        argv[index + 1] = scale;
+
+        let error = fuzz_request(argv).expect_err("the scale is validated");
+
+        assert!(
+            matches!(error, CliError::Fuzz(FuzzError::InvalidScale { .. })),
+            "{scale}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn rejects_bounds_that_cross() {
+    let mut argv = documented_fuzz_invocation();
+    argv.extend(["--clamp-min", "1", "--clamp-max", "-1"]);
+
+    let error = fuzz_request(argv).expect_err("the bounds are validated");
+
+    assert!(
+        matches!(error, CliError::Fuzz(FuzzError::InvalidBounds { .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn requires_the_distribution_the_scale_and_the_mode() {
+    for flag in ["--distribution", "--scale", "--mode"] {
+        let mut argv = documented_fuzz_invocation();
+        let index = argv
+            .iter()
+            .position(|arg| *arg == flag)
+            .expect("the flag is present");
+        argv.drain(index..index + 2);
+
+        assert!(
+            Cli::try_parse_from(argv).is_err(),
+            "{flag} states part of the perturbation, so it is never defaulted"
+        );
+    }
+}
+
+#[test]
+fn carries_caller_metadata_into_a_fuzz_request() {
+    let mut argv = documented_fuzz_invocation();
+    argv.splice(9..9, ["--metadata", "grq_observation_version=42"]);
+
+    let request = fuzz_request(argv).expect("the request is valid");
 
     assert_eq!(request.metadata.get("grq_observation_version"), Some("42"));
 }

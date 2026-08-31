@@ -60,7 +60,8 @@ The existing system is working, so migration is deliberately evolutionary:
    GRQ default**, with the switch kept as the rollback;
 5. remove obsolete code only after the new path is proven;
 6. add new transforms afterwards — quantisation is done,
-   [`docs/quantisation.md`](docs/quantisation.md); fuzzing is not.
+   [`docs/quantisation.md`](docs/quantisation.md), and so is fuzzing,
+   [`docs/fuzzing.md`](docs/fuzzing.md).
 
 No migration issue should combine behavioural changes with the first sampler port.
 
@@ -379,6 +380,52 @@ Refinery makes **no claim** that a quantised corpus trains a better model. It
 reports what quantisation costs and what it saves; whether that trade is worth
 taking is a downstream experimental question.
 
+The mapping, the error bounds, the special-value behaviour and the benchmark
+method are in [`docs/quantisation.md`](docs/quantisation.md).
+
+## Fuzzing
+
+`fuzz` is the third transform, and a **value** one: it perturbs values with
+seeded noise and leaves the records themselves — how many, in what order and how
+wide — exactly as it found them.
+
+```bash
+neat_ai_refinery \
+  --source trainData-binary \
+  --output trainData-binary-fuzzed \
+  --inputs 2511 --outputs 1 \
+  fuzz --distribution gaussian --scale 0.01 --mode relative \
+       [--targets inputs] [--clamp-min -1 --clamp-max 1] [--seed 20260831]
+```
+
+- **Explicit policy** — `--distribution` (`gaussian` or `uniform`), `--scale`
+  and `--mode` (`absolute`, `x + noise`; or `relative`, `x × (1 + noise)`) have
+  no defaults. A scale means nothing without the distribution and mode to read
+  it against, so all three are always stated and always recorded.
+- **Outputs are safe by default** — `--targets` defaults to `inputs`. Perturbing
+  an expected output changes what the corpus *teaches* rather than adding noise
+  to it, so reaching one takes an explicit `--targets outputs` or
+  `--targets all`.
+- **Bounds** — `--clamp-min` and `--clamp-max` hold every perturbed value in
+  range; either side may be given alone, and by default neither is.
+- **Non-finite values are defined, not incidental** — a `NaN` or infinity
+  already in the source is written back unchanged and counted as preserved,
+  because noise is not defined on it; a perturbation whose *result* leaves the
+  finite range fails the run naming the record and value, because a bound that
+  clamped it would publish a plausible number in place of a fault.
+- **Seed** — omit `--seed` and the run seeds from the operating system. The seed
+  used is always reported and always recorded, so any run can be replayed; a
+  given seed and policy reproduce a corpus byte for byte.
+- **Output name** — `fuzz-<distribution>.bin`, published atomically with its
+  manifest, as `sample` and `quantise` are.
+
+Refinery makes **no claim** that a fuzzed corpus trains a better model, or that
+noise augmentation improves fitness. It supplies the transform; whether the
+perturbation helps is a downstream experimental question.
+
+The distributions, the modes, the bounds and non-finite policy, and the manifest
+it all lands in are in [`docs/fuzzing.md`](docs/fuzzing.md).
+
 ### Composing transforms
 
 Every transform reads a directory of `.bin` files and publishes a directory of
@@ -389,27 +436,30 @@ of each other:
 ```bash
 neat_ai_refinery --source trainData-binary --output sampled \
   --inputs 2511 --outputs 1 sample --rate 0.05
-neat_ai_refinery --source sampled --output sampled-bf16 \
+neat_ai_refinery --source sampled --output sampled-fuzzed \
+  --inputs 2511 --outputs 1 fuzz --distribution gaussian --scale 0.01 \
+  --mode relative --seed 20260831
+neat_ai_refinery --source sampled-fuzzed --output sampled-fuzzed-bf16 \
   --inputs 2511 --outputs 1 quantise --scheme bfloat16
 ```
 
 ```mermaid
 flowchart LR
     S[(source corpus<br/>float32)] -->|sample --rate 0.05| A[(sampled<br/>float32)]
-    A -->|quantise --scheme bfloat16| B[(sampled-bf16<br/>bfloat16)]
+    A -->|fuzz --distribution gaussian| F[(sampled-fuzzed<br/>float32)]
+    F -->|quantise --scheme bfloat16| B[(sampled-fuzzed-bf16<br/>bfloat16)]
     T[neat_ai_refinery::transform<br/>discovery · separation · staging · publish] -.-> S
     T -.-> A
+    T -.-> F
 ```
 
 The shared half — source discovery, destination separation, staging and atomic
-publication — lives in `neat_ai_refinery::transform`, and is all either
-transform uses. Discovery ignores `manifest.json`, so it is never mistaken for
-records; and when a source carries a manifest, its declared encoding and record
-width are checked against what the run was told to read, so quantising an
-already quantised corpus fails loud instead of reinterpreting its bytes.
-
-The mapping, the error bounds, the special-value behaviour and the benchmark
-method are in [`docs/quantisation.md`](docs/quantisation.md).
+publication — lives in `neat_ai_refinery::transform`, and is all any of the
+three transforms uses. Discovery ignores `manifest.json`, so it is never
+mistaken for records; and when a source carries a manifest, its declared
+encoding and record width are checked against what the run was told to read, so
+quantising an already quantised corpus — or fuzzing one as if it were `float32`
+— fails loud instead of reinterpreting its bytes.
 
 ## Transformation manifest
 
