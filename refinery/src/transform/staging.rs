@@ -12,7 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::SampleError;
+use super::TransformError;
 
 /// A derived corpus being built out of sight of its readers.
 ///
@@ -21,7 +21,7 @@ use super::SampleError;
 /// the corpus is dropped without being published.
 ///
 /// ```no_run
-/// use neat_ai_refinery::sample::StagedCorpus;
+/// use neat_ai_refinery::transform::StagedCorpus;
 ///
 /// let staged = StagedCorpus::create("trainData-binary-sampler")?;
 /// std::fs::write(staged.path().join("sample-5.bin"), b"records")?;
@@ -41,16 +41,16 @@ impl StagedCorpus {
     ///
     /// # Errors
     ///
-    /// Returns [`SampleError::Io`] when the destination has no file name, its
+    /// Returns [`TransformError::Io`] when the destination has no file name, its
     /// parent directory does not exist, or the staging directory cannot be
     /// created.
-    pub fn create(destination: impl AsRef<Path>) -> Result<Self, SampleError> {
+    pub fn create(destination: impl AsRef<Path>) -> Result<Self, TransformError> {
         let destination = destination.as_ref().to_path_buf();
         let name = file_name(&destination)?;
         let parent = parent_of(&destination);
 
         let staging = parent.join(format!(".{name}.staging-{}", unique_suffix()));
-        fs::create_dir(&staging).map_err(|e| SampleError::io(&staging, e))?;
+        fs::create_dir(&staging).map_err(|e| TransformError::io(&staging, e))?;
 
         Ok(Self {
             staging,
@@ -80,8 +80,8 @@ impl StagedCorpus {
     ///
     /// # Errors
     ///
-    /// Returns [`SampleError::Publish`] when either rename fails.
-    pub fn publish(mut self) -> Result<(), SampleError> {
+    /// Returns [`TransformError::Publish`] when either rename fails.
+    pub fn publish(mut self) -> Result<(), TransformError> {
         let aside = parent_of(&self.destination).join(format!(
             "{}.deleting-{}",
             file_name(&self.destination)?,
@@ -113,8 +113,8 @@ impl StagedCorpus {
     }
 
     /// Builds the publish failure for `error`.
-    fn publish_failed(&self, error: io::Error) -> SampleError {
-        SampleError::Publish {
+    fn publish_failed(&self, error: io::Error) -> TransformError {
+        TransformError::Publish {
             staging: self.staging.clone(),
             destination: self.destination.clone(),
             source: error,
@@ -134,11 +134,11 @@ impl Drop for StagedCorpus {
 }
 
 /// The file name of `path`, as a string.
-fn file_name(path: &Path) -> Result<String, SampleError> {
+fn file_name(path: &Path) -> Result<String, TransformError> {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .ok_or_else(|| {
-            SampleError::io(
+            TransformError::io(
                 path,
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -182,7 +182,7 @@ mod tests {
     fn rejects_a_destination_with_no_file_name() {
         let error = file_name(Path::new("/")).expect_err("the root has no file name");
 
-        assert!(matches!(error, SampleError::Io { .. }), "{error:?}");
+        assert!(matches!(error, TransformError::Io { .. }), "{error:?}");
     }
 
     #[test]

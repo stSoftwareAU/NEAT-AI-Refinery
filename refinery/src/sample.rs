@@ -20,12 +20,13 @@
 //! write aborts the run, the staging directory is removed, and the previously
 //! published corpus is left exactly as it was.
 
+//! Staging, publication and source discovery are not sampling concerns and
+//! live in [`crate::transform`], so another transform composes with this one.
+
 mod error;
 mod plan;
-mod publish;
 mod run;
 
 pub use error::SampleError;
 pub use plan::{SampleRate, SampleRequest};
-pub use publish::StagedCorpus;
 pub use run::{sample, SampleOutcome};

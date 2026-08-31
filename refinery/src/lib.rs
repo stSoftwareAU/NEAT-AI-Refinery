@@ -66,5 +66,7 @@
 pub mod cli;
 pub mod corpus;
 pub mod manifest;
+pub mod quantise;
 pub mod sample;
 pub mod soak;
+pub mod transform;

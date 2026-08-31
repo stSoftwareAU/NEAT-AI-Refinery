@@ -1,4 +1,5 @@
-//! Staging and atomic publication of a derived corpus.
+//! Staging and atomic publication of a derived corpus — the machinery every
+//! transform shares.
 //!
 //! Readers of the live directory must only ever see the previous corpus or the
 //! new one — never an empty or half-built slot — and a failed publish must
@@ -13,7 +14,7 @@ use std::fs;
 use std::path::Path;
 
 use common::TempDir;
-use neat_ai_refinery::sample::{SampleError, StagedCorpus};
+use neat_ai_refinery::transform::{StagedCorpus, TransformError};
 
 /// Every file name in `dir`, sorted.
 fn entries(dir: &Path) -> BTreeSet<String> {
@@ -74,7 +75,7 @@ fn restores_the_previous_corpus_when_the_publish_fails() {
 
     let error = staged.publish().expect_err("the publish must fail loud");
 
-    assert!(matches!(error, SampleError::Publish { .. }), "{error:?}");
+    assert!(matches!(error, TransformError::Publish { .. }), "{error:?}");
     assert_eq!(
         entries(&live),
         BTreeSet::from(["sample-99.bin".into()]),
@@ -113,5 +114,5 @@ fn refuses_to_stage_under_a_missing_parent_directory() {
     let error = StagedCorpus::create(temp.path().join("absent").join("derived"))
         .expect_err("a missing parent is fatal");
 
-    assert!(matches!(error, SampleError::Io { .. }), "{error:?}");
+    assert!(matches!(error, TransformError::Io { .. }), "{error:?}");
 }

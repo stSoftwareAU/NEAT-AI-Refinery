@@ -157,7 +157,11 @@ impl RecordWriter {
             });
         }
 
-        let record: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+        let encoding = self.shape.encoding();
+        let mut record = Vec::with_capacity(self.shape.bytes_per_record());
+        for value in values {
+            encoding.encode_into(*value, &mut record);
+        }
         self.write_record(&record)
     }
 

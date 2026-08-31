@@ -117,22 +117,15 @@ impl SourceCorpus {
             .read_exact(&mut bytes)
             .map_err(|e| CorpusError::io(&self.path, e))?;
 
-        Ok(decode_float32(&bytes))
+        // Decoded as the shape says the corpus stores values, so a quantised
+        // corpus reads back through the same call as a `f32` one.
+        Ok(self.shape.encoding().decode(&bytes))
     }
-}
-
-/// Decodes native-endian IEEE-754 `f32` values from `bytes`.
-///
-/// `bytes.len()` is always a multiple of four here: it is one whole record,
-/// whose width was validated when the corpus was opened.
-fn decode_float32(bytes: &[u8]) -> Vec<f32> {
-    let (values, _trailing) = bytes.as_chunks::<4>();
-    values.iter().copied().map(f32::from_ne_bytes).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::decode_float32;
+    use crate::corpus::ValueEncoding;
 
     #[test]
     fn decodes_native_endian_values() {
@@ -140,11 +133,11 @@ mod tests {
         bytes.extend_from_slice(&1.5_f32.to_ne_bytes());
         bytes.extend_from_slice(&(-2.25_f32).to_ne_bytes());
 
-        assert_eq!(decode_float32(&bytes), vec![1.5, -2.25]);
+        assert_eq!(ValueEncoding::Float32.decode(&bytes), vec![1.5, -2.25]);
     }
 
     #[test]
     fn decodes_an_empty_slice_to_no_values() {
-        assert!(decode_float32(&[]).is_empty());
+        assert!(ValueEncoding::Float32.decode(&[]).is_empty());
     }
 }

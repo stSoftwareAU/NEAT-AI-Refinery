@@ -1,7 +1,7 @@
-//! Failures of a sampling run.
+//! Failures shared by every derived-corpus transform.
 //!
-//! Every variant is fatal: a sample that cannot be produced exactly is never
-//! published as a partial or approximate one.
+//! Every variant is fatal: a derived corpus that cannot be produced exactly is
+//! never published as a partial or approximate one.
 
 use std::error::Error;
 use std::fmt;
@@ -10,17 +10,11 @@ use std::path::PathBuf;
 
 use crate::corpus::CorpusError;
 use crate::manifest::ManifestError;
-use crate::transform::TransformError;
 
-/// A sampling run that could not be completed.
+/// A transform step that could not be completed.
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum SampleError {
-    /// The sample rate is outside the allowed `0 < rate <= 1` range.
-    InvalidRate {
-        /// The rate as supplied.
-        rate: f64,
-    },
+pub enum TransformError {
     /// The source directory holds no `.bin` corpus files.
     NoCorpusFiles {
         /// The directory that was scanned.
@@ -55,50 +49,31 @@ pub enum SampleError {
     },
 }
 
-impl From<CorpusError> for SampleError {
+impl TransformError {
+    /// Wraps `source` with the `path` it applies to.
+    pub(crate) fn io(path: impl Into<PathBuf>, source: io::Error) -> Self {
+        Self::Io {
+            path: path.into(),
+            source,
+        }
+    }
+}
+
+impl From<CorpusError> for TransformError {
     fn from(error: CorpusError) -> Self {
         Self::Corpus(error)
     }
 }
 
-impl From<ManifestError> for SampleError {
+impl From<ManifestError> for TransformError {
     fn from(error: ManifestError) -> Self {
         Self::Manifest(error)
     }
 }
 
-impl From<TransformError> for SampleError {
-    /// Restates a shared transform failure in the sampler's own vocabulary, so
-    /// a caller matching on [`SampleError`] sees one error type rather than two.
-    fn from(error: TransformError) -> Self {
-        match error {
-            TransformError::NoCorpusFiles { path } => Self::NoCorpusFiles { path },
-            TransformError::OverlappingCorpora { output, source } => {
-                Self::OverlappingCorpora { output, source }
-            }
-            TransformError::Corpus(error) => Self::Corpus(error),
-            TransformError::Manifest(error) => Self::Manifest(error),
-            TransformError::Publish {
-                staging,
-                destination,
-                source,
-            } => Self::Publish {
-                staging,
-                destination,
-                source,
-            },
-            TransformError::Io { path, source } => Self::Io { path, source },
-        }
-    }
-}
-
-impl fmt::Display for SampleError {
+impl fmt::Display for TransformError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidRate { rate } => write!(
-                f,
-                "invalid sample rate {rate} — the rate must be greater than 0 and at most 1"
-            ),
             Self::NoCorpusFiles { path } => write!(
                 f,
                 "source directory {} holds no .bin corpus files",
@@ -134,7 +109,7 @@ impl fmt::Display for SampleError {
     }
 }
 
-impl Error for SampleError {
+impl Error for TransformError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Corpus(error) => Some(error),
