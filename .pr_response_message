@@ -1,0 +1,15 @@
+Fixed Sampler Parity and evolveDir Consumption — `evolve_dir.ts` ran without the net access NEAT-AI needs to fetch its WASM bundle.
+
+**What failed:** `Sampler Parity and evolveDir Consumption` / `parity` — `evolve_dir_consumes_a_refinery_published_corpus` panicked with `evolve_dir.ts exited Some(1)`, stderr showing `NotCapable: Requires net access to "jsr.io:443"` from `WasmBundleCache.ts` after 5 retries.
+
+**Root cause:** NEAT-AI fetches its WASM activation bundle from `jsr.io` the first time it runs on a machine, then serves it from its own cache directory (`NEAT_AI_WASM_CACHE_DIR` / `XDG_CACHE_HOME` / `HOME`). The harness launched `evolve_dir.ts` with read/write/env/run/sys but no net, so a warm developer machine passed off the cache while a clean CI runner could not make the request at all and `evolveDir` never scored the corpus. Reproduced locally by pointing `XDG_CACHE_HOME` at an empty directory — the same `NotCapable` failure appears; it passes with a warm cache, which is why the PR's local run was green.
+
+**The fix:** grant `--allow-net=jsr.io`, scoped to the host the pinned `jsr:@stsoftware/neat-ai` dependency is published on rather than blanket net, and share one permission list across both `evolve_dir.ts` call sites. The permission is now stated by the harness instead of depending on whether the machine happens to have a warm cache.
+
+The control test hid the same fault and is fixed too: `--expect-failure` treated *any* error as "corpus rejected", so the permission failure read as the rejection it asserts and `evolve_dir_rejects_a_corpus_refinery_would_never_publish` passed for the wrong reason in this very run. It now re-raises a `NotCapable`/`PermissionDenied` cause as a sandbox fault instead of reporting it as a verdict on the corpus.
+
+**Classification:** the run was classified `unknown`; investigation showed a repo-local defect in the harness's Deno invocation, so it was fixed rather than retried.
+
+**Files touched:** `refinery/tests/parity_harness.rs` — added the shared `EVOLVE_DIR_PERMISSIONS` list with `--allow-net=jsr.io` and used it at both call sites; `parity/evolve_dir.ts` — re-raise sandbox faults in the `--expect-failure` path, and document the net requirement in the usage block.
+
+**Gate:** `./parity/run.sh` with a cold `XDG_CACHE_HOME` (8 passed, previously the CI failure) and `./quality.sh` both passed locally.
