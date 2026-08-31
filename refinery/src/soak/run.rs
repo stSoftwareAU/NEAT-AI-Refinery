@@ -2,14 +2,13 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::{
     AtomicPublicationEvidence, ConsumerCheck, CorpusDigest, CorpusFacts, HostFacts,
     MeasuredCommand, PublishedCorpus, RunMeasurement, SoakError, SoakReport, SoakRound,
 };
-use crate::corpus::RecordShape;
+use crate::corpus::{write_synthetic_corpus, RecordShape};
 use crate::manifest::ToolIdentity;
 use crate::sample::SampleRate;
 
@@ -62,7 +61,12 @@ pub fn soak(config: &SoakConfig) -> Result<SoakReport, SoakError> {
 
     let source = workspace.join("trainData-binary");
     let output = workspace.join("trainData-binary-sampler");
-    let corpus_bytes = build_corpus(&source, config)?;
+    let corpus_bytes = write_synthetic_corpus(
+        &source,
+        config.shards,
+        config.records_per_shard,
+        config.shape,
+    )?;
     let before = CorpusDigest::of(&source)?;
 
     let mut rounds = Vec::with_capacity(config.rounds);
@@ -117,38 +121,6 @@ pub fn soak(config: &SoakConfig) -> Result<SoakReport, SoakError> {
         source_unchanged: true,
         atomic_publication,
     })
-}
-
-/// Writes the synthetic source corpus and reports its total byte length.
-///
-/// The values are distinct per record so a corpus is never accidentally
-/// self-similar, and every file holds whole records only.
-fn build_corpus(source: &Path, config: &SoakConfig) -> Result<u64, SoakError> {
-    fs::create_dir_all(source).map_err(|e| SoakError::io(source, e))?;
-
-    let mut total = 0_u64;
-    for shard in 0..config.shards {
-        let path = source.join(format!("shard-{shard:03}.bin"));
-        // Written a record at a time: a production-shaped shard is hundreds of
-        // megabytes, and a soak that needed all of it in memory would be
-        // measuring its own fixture.
-        let file = fs::File::create(&path).map_err(|e| SoakError::io(&path, e))?;
-        let mut writer = std::io::BufWriter::new(file);
-        let mut record = Vec::with_capacity(config.shape.bytes_per_record());
-        for index in 0..config.records_per_shard {
-            record.clear();
-            let base = (shard * config.records_per_shard + index) as f32;
-            for value in 0..config.shape.record_values() {
-                record.extend_from_slice(&(base + value as f32).to_ne_bytes());
-            }
-            writer
-                .write_all(&record)
-                .map_err(|e| SoakError::io(&path, e))?;
-            total += record.len() as u64;
-        }
-        writer.flush().map_err(|e| SoakError::io(&path, e))?;
-    }
-    Ok(total)
 }
 
 /// The command line GRQ runs in production, minus the seed.

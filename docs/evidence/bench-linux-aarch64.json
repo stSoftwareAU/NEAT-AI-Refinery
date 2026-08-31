@@ -1,0 +1,78 @@
+{
+  "tool": {
+    "name": "neat-ai-refinery",
+    "version": "0.1.0"
+  },
+  "host": {
+    "os": "linux",
+    "arch": "aarch64",
+    "family": "unix",
+    "cpu_count": 6
+  },
+  "record_shape": {
+    "inputs": 2511,
+    "outputs": 1,
+    "record_values": 2512,
+    "bytes_per_record": 10048,
+    "encoding": "float32"
+  },
+  "corpus": {
+    "shards": 8,
+    "records_per_shard": 20000,
+    "bytes": 1607680000
+  },
+  "repeats": 3,
+  "cases": [
+    {
+      "label": "sample",
+      "transform": "sample --rate 0.05",
+      "repeats": 3,
+      "elapsed_ms": 304,
+      "peak_rss_kib": 13292,
+      "peak_rss_method": "proc-vmhwm",
+      "input_bytes": 1607680000,
+      "output_bytes": 80564864,
+      "records_read": 160000,
+      "records_written": 8018
+    },
+    {
+      "label": "quantise",
+      "transform": "quantise --scheme bfloat16",
+      "repeats": 3,
+      "elapsed_ms": 1581,
+      "peak_rss_kib": 2980,
+      "peak_rss_method": "proc-vmhwm",
+      "input_bytes": 1607680000,
+      "output_bytes": 803840000,
+      "records_read": 160000,
+      "records_written": 160000
+    },
+    {
+      "label": "pipeline",
+      "transform": "pipeline sample → quantise",
+      "repeats": 3,
+      "elapsed_ms": 370,
+      "peak_rss_kib": 13352,
+      "peak_rss_method": "proc-vmhwm",
+      "input_bytes": 1607680000,
+      "output_bytes": 40614016,
+      "records_read": 160000,
+      "records_written": 8084
+    }
+  ],
+  "reference": {
+    "mirrors": "sample",
+    "result": {
+      "label": "typescript",
+      "transform": "Sampler.ts --rate 0.05",
+      "repeats": 3,
+      "elapsed_ms": 576,
+      "peak_rss_kib": 170876,
+      "peak_rss_method": "proc-vmhwm",
+      "input_bytes": 1607680000,
+      "output_bytes": 81388800,
+      "records_read": 160000,
+      "records_written": 8100
+    }
+  }
+}

@@ -330,12 +330,33 @@ extracted from are documented in
 ### Measuring it
 
 ```bash
+./bench/run.sh                     # every transform, plus the Deno sampler for comparison
 cargo run --release --example sample_throughput -- [shards] [records-per-shard] [rate]
 ```
 
-The example builds a synthetic corpus at the production shape and reports
-records/s, read throughput and published size. Behavioural parity comes before
-optimisation, so it reports numbers rather than asserting on them.
+The benchmark harness builds one synthetic corpus at the production shape and
+measures each transform through the release binary, reporting wall-clock, input
+GiB/s, records/s, peak RSS and published size. At 160 000 records of 10 048
+bytes, rate 0.05:
+
+| Case | Wall-clock | Input GiB/s | Records/s | Peak RSS | Output |
+| --- | --- | --- | --- | --- | --- |
+| `sample` | 304 ms | 4.93 | 526 316 | 13 292 KiB | 76.8 MiB |
+| `quantise` | 1 581 ms | 0.95 | 101 202 | 2 980 KiB | 766.6 MiB |
+| `pipeline` | 370 ms | 4.05 | 432 432 | 13 352 KiB | 38.7 MiB |
+| Deno `Sampler.ts` | 576 ms | 2.60 | 277 778 | 170 876 KiB | 77.6 MiB |
+
+A run can be held to a committed baseline (`--baseline`, same corpus and host)
+or to the Deno sampler measured beside it (`--min-speedup`); both fail the run
+rather than warn. `.github/workflows/benchmark.yml` enforces the second on
+macOS and Linux for every pull request and publishes the numbers to the job
+summary. The method, the gates and what the numbers are *not* are in
+[`docs/benchmarks.md`](docs/benchmarks.md).
+
+`sample_throughput` remains the one-line sampler probe for a quick local
+number. Behavioural parity comes before optimisation: both report numbers
+rather than asserting on them, and the gates above compare a run with another
+run rather than with a wish.
 
 ## Quantisation
 
@@ -637,6 +658,12 @@ So is the production soak, which needs Deno and the release binary:
 ./soak/run.sh
 ```
 
+So is the benchmark, which needs the same two:
+
+```bash
+./bench/run.sh
+```
+
 ## Continuous integration
 
 PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
@@ -667,6 +694,7 @@ the full CI graph is still covered:
 | `markdown-lint.yml` | `markdownlint-cli2` |
 | `parity.yml` | sampler parity against GRQ and `evolveDir` consumption |
 | `soak.yml` | the production soak on macOS and Linux |
+| `benchmark.yml` | throughput, peak RSS and output size on macOS and Linux |
 | `cargo-upgrade.yml` | weekly dependency-refresh PR |
 
 Every third-party `uses:` reference is pinned to a 40-character commit SHA with

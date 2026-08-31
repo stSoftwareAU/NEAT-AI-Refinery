@@ -13,6 +13,7 @@ mod error;
 mod reader;
 mod shape;
 mod source;
+mod synthetic;
 mod writer;
 
 pub use derived::DerivedDestination;
@@ -21,4 +22,5 @@ pub use error::CorpusError;
 pub use reader::RecordReader;
 pub use shape::{RecordShape, ValueEncoding};
 pub use source::SourceCorpus;
+pub use synthetic::write_synthetic_corpus;
 pub use writer::RecordWriter;
