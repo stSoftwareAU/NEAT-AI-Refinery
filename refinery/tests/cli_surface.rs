@@ -66,6 +66,42 @@ fn accepts_a_seed_for_a_reproducible_run() {
 }
 
 #[test]
+fn carries_repeated_caller_metadata_into_the_request() {
+    let mut argv = documented_invocation();
+    argv.splice(
+        9..9,
+        [
+            "--metadata",
+            "grq_observation_version=42",
+            "--metadata",
+            "run.label=nightly",
+        ],
+    );
+
+    let request = Cli::try_parse_from(argv)
+        .expect("repeated --metadata is accepted")
+        .request()
+        .expect("the request is valid");
+
+    assert_eq!(request.metadata.get("grq_observation_version"), Some("42"));
+    assert_eq!(request.metadata.get("run.label"), Some("nightly"));
+    assert_eq!(request.metadata.len(), 2);
+}
+
+#[test]
+fn rejects_caller_metadata_that_is_not_a_key_value_pair() {
+    let mut argv = documented_invocation();
+    argv.splice(9..9, ["--metadata", "no-equals-sign"]);
+
+    let error = Cli::try_parse_from(argv)
+        .expect("clap accepts any string")
+        .request()
+        .expect_err("the metadata is validated");
+
+    assert!(matches!(error, SampleError::Manifest(_)), "{error:?}");
+}
+
+#[test]
 fn rejects_a_rate_outside_the_allowed_range() {
     let mut argv = documented_invocation();
     argv.pop();

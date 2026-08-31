@@ -27,7 +27,8 @@ fn run(cli: &Cli) -> Result<SampleOutcome, SampleError> {
     sample(&cli.request()?)
 }
 
-/// Reports what was published, including the seed needed to reproduce it.
+/// Reports what was published, including the seed needed to reproduce it and
+/// the manifest recording how it was made.
 fn report(outcome: &SampleOutcome) {
     println!(
         "🏭 {} — {} of {} records kept from {} file(s), seed {}",
@@ -36,5 +37,11 @@ fn report(outcome: &SampleOutcome) {
         outcome.records_read,
         outcome.sources.len(),
         outcome.seed
+    );
+    println!(
+        "📄 {} — {} {}",
+        outcome.manifest_file.display(),
+        outcome.manifest.output.checksum.algorithm,
+        outcome.manifest.output.checksum.value
     );
 }

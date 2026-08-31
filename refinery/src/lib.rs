@@ -51,10 +51,19 @@
 //! GRQ's materialised sampler, keeping each record with probability `rate` and
 //! publishing the result atomically. [`cli`] is the argument surface the
 //! `neat_ai_refinery` binary drives it with.
+//!
+//! # Provenance
+//!
+//! Every derived corpus is published with a [`manifest`] beside it recording
+//! how it was made — source identity, record geometry, transform, parameters,
+//! seed, counts, tool version, timestamp and a checksum of the output. The
+//! manifest is written into the staging directory before the publishing
+//! rename, so a corpus is never published without it.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 pub mod cli;
 pub mod corpus;
+pub mod manifest;
 pub mod sample;

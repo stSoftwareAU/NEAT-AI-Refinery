@@ -79,6 +79,24 @@ aside and deletes it. Either nesting — the output inside the source, or the
 source inside the output — would put an immutable source corpus one rename
 away from deletion, so both are refused before a file is opened.
 
+## Added beyond the port: the manifest
+
+The Deno sampler publishes a corpus file and nothing else. Refinery also writes
+a `manifest.json` into the staging directory before the publishing rename, so
+the published directory holds the corpus **and** the provenance record of how
+it was made — issue #6. The addition is invisible to a consumer: NEAT-AI scans
+a corpus directory for `.bin` files, so the manifest is never read as records,
+and the parity harness proves `evolveDir` still consumes the directory
+unchanged.
+
+It is not a behavioural change to the sample itself. The same source, seed and
+rate produce the same bytes as before; the manifest records the checksum of
+those bytes so the claim can be checked rather than trusted. A manifest that
+cannot be written aborts the run with nothing published — the derived corpus is
+never separated from its provenance. See the README's
+[transformation manifest](../README.md#transformation-manifest) section for the
+recorded fields.
+
 ## Deliberately not ported
 
 - **ENOSPC exit code 28 and scratch reclamation across earlier runs.** GRQ's

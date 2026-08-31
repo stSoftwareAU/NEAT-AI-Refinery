@@ -9,6 +9,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::corpus::CorpusError;
+use crate::manifest::ManifestError;
 
 /// A sampling run that could not be completed.
 #[derive(Debug)]
@@ -33,6 +34,8 @@ pub enum SampleError {
     },
     /// The corpus contract was breached while reading or writing records.
     Corpus(CorpusError),
+    /// The provenance record could not be produced, so nothing was published.
+    Manifest(ManifestError),
     /// Publishing the staged corpus over the live directory failed.
     Publish {
         /// The staging directory that was to be published.
@@ -67,6 +70,12 @@ impl From<CorpusError> for SampleError {
     }
 }
 
+impl From<ManifestError> for SampleError {
+    fn from(error: ManifestError) -> Self {
+        Self::Manifest(error)
+    }
+}
+
 impl fmt::Display for SampleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -86,6 +95,14 @@ impl fmt::Display for SampleError {
                 source.display()
             ),
             Self::Corpus(error) => write!(f, "{error}"),
+            // Metadata is validated before any file is opened; every other
+            // manifest failure happens with a corpus staged and unpublished,
+            // and the operator needs to be told it was thrown away.
+            Self::Manifest(error @ ManifestError::InvalidMetadata { .. }) => write!(f, "{error}"),
+            Self::Manifest(error) => write!(
+                f,
+                "{error} — nothing was published: a derived corpus is never published without its provenance"
+            ),
             Self::Publish {
                 staging,
                 destination,
@@ -105,6 +122,7 @@ impl Error for SampleError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Corpus(error) => Some(error),
+            Self::Manifest(error) => Some(error),
             Self::Publish { source, .. } | Self::Io { source, .. } => Some(source),
             _ => None,
         }

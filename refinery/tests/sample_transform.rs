@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use common::{encode, TempDir};
 use neat_ai_refinery::corpus::RecordShape;
+use neat_ai_refinery::manifest::{CallerMetadata, MANIFEST_FILE_NAME};
 use neat_ai_refinery::sample::{sample, SampleError, SampleRate, SampleRequest};
 
 /// Two inputs and one output — twelve bytes a record.
@@ -66,7 +67,17 @@ fn request(source: &Path, output: &Path, rate: f64, seed: Option<u64>) -> Sample
         shape: shape(),
         rate: SampleRate::new(rate).expect("valid rate"),
         seed,
+        metadata: CallerMetadata::default(),
     }
+}
+
+/// The published corpus file names — the manifest published beside them is
+/// asserted on in `manifest_provenance.rs`.
+fn corpus_entries(dir: &Path) -> BTreeSet<String> {
+    entries(dir)
+        .into_iter()
+        .filter(|name| name != MANIFEST_FILE_NAME)
+        .collect()
 }
 
 #[test]
@@ -114,7 +125,10 @@ fn publishes_every_record_at_a_rate_of_one() {
 
     assert_eq!(outcome.records_read, 64);
     assert_eq!(outcome.records_written, 64);
-    assert_eq!(entries(&output), BTreeSet::from(["sample-100.bin".into()]));
+    assert_eq!(
+        corpus_entries(&output),
+        BTreeSet::from(["sample-100.bin".into()])
+    );
 
     let published = read_records(&output.join("sample-100.bin"));
     assert_eq!(
@@ -259,7 +273,7 @@ fn republishes_over_a_live_derived_corpus() {
     sample(&request(&source, &output, 1.0, Some(5))).expect("sampling succeeds");
 
     assert_eq!(
-        entries(&output),
+        corpus_entries(&output),
         BTreeSet::from(["sample-100.bin".into()]),
         "publishing replaces the whole directory rather than editing it in place"
     );

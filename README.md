@@ -209,6 +209,7 @@ neat_ai_refinery \
   --source trainData-binary \
   --output trainData-binary-sampler \
   --inputs 2511 --outputs 1 \
+  [--metadata grq_observation_version=42] \
   sample --rate 0.05 [--seed 20260831]
 ```
 
@@ -237,6 +238,8 @@ flowchart LR
   replayed. A given seed reproduces a sample byte for byte.
 - **Immutability** — a source and output directory that overlap are refused,
   either way round, because publishing replaces the whole output directory.
+- **Provenance** — a `manifest.json` recording how the corpus was made is
+  published inside the same directory, in the same atomic swap.
 
 The ported behaviour, the deliberate omissions, and where the Rust port is
 stricter than the Deno one are documented in
@@ -282,6 +285,77 @@ cargo run --release --example sample_throughput -- [shards] [records-per-shard] 
 The example builds a synthetic corpus at the production shape and reports
 records/s, read throughput and published size. Behavioural parity comes before
 optimisation, so it reports numbers rather than asserting on them.
+
+## Transformation manifest
+
+Every derived corpus is published with its provenance beside it:
+
+```text
+trainData-binary-sampler/
+├── manifest.json      ← how this corpus was made
+└── sample-5.bin       ← the corpus
+```
+
+```json
+{
+  "manifest_version": 1,
+  "tool": { "name": "neat-ai-refinery", "version": "0.1.0" },
+  "created_at": "2026-08-31T05:51:23Z",
+  "created_at_unix": 1788155483,
+  "transform": { "name": "sample", "parameters": { "rate": 0.05 }, "seed": 20260831 },
+  "record_shape": {
+    "inputs": 2511, "outputs": 1, "record_values": 2512,
+    "bytes_per_record": 10048, "encoding": "float32"
+  },
+  "source": {
+    "path": "/data/trainData-binary",
+    "identity_strategy": "path+bytes",
+    "file_count": 2,
+    "record_count": 80,
+    "files": [{ "name": "shard-a.bin", "bytes": 602880 }]
+  },
+  "output": {
+    "file": "sample-5.bin",
+    "record_count": 4,
+    "bytes": 40192,
+    "checksum": { "algorithm": "sha256", "value": "57d5a3b3…" }
+  },
+  "metadata": { "grq_observation_version": "42" }
+}
+```
+
+- **Reproducible** — the transform, its parameters and the seed actually used
+  are all recorded, so the same source replays to the same bytes. The output
+  checksum is how you prove it did.
+- **Never separated from its corpus** — the manifest is written into the
+  staging directory *before* the publishing rename, so the atomic swap brings
+  corpus and provenance across together. A manifest that cannot be written
+  aborts the run: nothing is published, and the previously published corpus is
+  left exactly as it was.
+- **Source identity is `path+bytes`** — the canonical source path plus each
+  file's name and byte length. Hashing a multi-gigabyte source on every run
+  would cost more than it proves, so the strategy is named in the manifest
+  rather than left for a reader to assume.
+- **Nothing application-specific is invented** — Refinery records what it did.
+  An application fact such as a GRQ observation version is passed in with
+  `--metadata KEY=VALUE` (repeatable) and stored verbatim, uninterpreted.
+  Keys are `[A-Za-z0-9_.-]`, at most 64 bytes and unique; values are at most
+  1024 bytes and hold no control characters, so a manifest stays readable and
+  machine-parsable.
+
+```mermaid
+flowchart LR
+    T[transform] --> C[staging dir<br/>sample-5.bin]
+    C --> K[sha256 the staged corpus]
+    K --> M[write manifest.json<br/>into the same staging dir]
+    M -->|written| P[atomic rename]
+    M -->|failed| X[staging removed<br/>nothing published]
+    P --> L[(live corpus + manifest)]
+```
+
+A consumer reads the corpus exactly as before: NEAT-AI scans the published
+directory for `.bin` files, so the manifest sits beside them unread — the
+parity harness proves `evolveDir` still consumes a Refinery corpus unchanged.
 
 ## Design goals
 
