@@ -35,6 +35,12 @@ pub struct Manifest {
     pub created_at_unix: u64,
     /// The transform, its parameters and its seed.
     pub transform: TransformRecord,
+    /// The ordered transforms a pipeline applied, first to last, recorded only
+    /// when the corpus was produced by a pipeline; absent for a single
+    /// transform. Transforms do not generally commute, so the order is part of
+    /// the provenance rather than an incidental detail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<Vec<TransformRecord>>,
     /// The record layout of the **published** corpus — what a reader of this
     /// directory must decode with.
     pub record_shape: RecordGeometry,
@@ -68,12 +74,24 @@ impl Manifest {
             created_at,
             created_at_unix,
             transform,
+            pipeline: None,
             record_shape,
             source_record_shape: None,
             source,
             output,
             metadata,
         }
+    }
+
+    /// Records the ordered transforms a pipeline applied, first to last.
+    ///
+    /// A single-transform run must not call this: an absent `pipeline` is how a
+    /// reader knows the corpus came from one transform, described by
+    /// [`Manifest::transform`].
+    #[must_use]
+    pub fn with_pipeline(mut self, stages: Vec<TransformRecord>) -> Self {
+        self.pipeline = Some(stages);
+        self
     }
 
     /// Records the source layout a representation transform read, when it
@@ -337,6 +355,27 @@ mod tests {
             .expect("the source layout is recorded");
         assert_eq!(source.encoding, "float32");
         assert_eq!(source.bytes_per_record, 12);
+    }
+
+    #[test]
+    fn leaves_the_stage_list_out_of_a_single_transform_manifest() {
+        let manifest = manifest();
+        let json = serde_json::to_string(&manifest).expect("encode the manifest");
+
+        assert_eq!(manifest.pipeline, None);
+        assert!(!json.contains("pipeline"), "{json}");
+    }
+
+    #[test]
+    fn records_the_pipeline_stages_in_order() {
+        let stages = vec![
+            TransformRecord::new("sample", BTreeMap::new(), Some(1)),
+            TransformRecord::new("quantise", BTreeMap::new(), None),
+        ];
+
+        let manifest = manifest().with_pipeline(stages.clone());
+
+        assert_eq!(manifest.pipeline.as_deref(), Some(stages.as_slice()));
     }
 
     #[test]

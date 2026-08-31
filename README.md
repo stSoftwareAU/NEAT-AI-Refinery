@@ -32,6 +32,7 @@ Refinery owns:
 - deterministic/reproducible shuffling;
 - quantisation and other representation transforms;
 - fuzzing/noise injection;
+- composing those transforms into pipelines with an explicit order;
 - transformation manifests and provenance;
 - strict validation of record boundaries and output artefacts;
 - atomic publication of derived corpora.
@@ -61,7 +62,9 @@ The existing system is working, so migration is deliberately evolutionary:
 5. remove obsolete code only after the new path is proven;
 6. add new transforms afterwards — quantisation is done,
    [`docs/quantisation.md`](docs/quantisation.md), and so is fuzzing,
-   [`docs/fuzzing.md`](docs/fuzzing.md).
+   [`docs/fuzzing.md`](docs/fuzzing.md);
+7. compose them in a stated order — done,
+   [`docs/pipelines.md`](docs/pipelines.md).
 
 No migration issue should combine behavioural changes with the first sampler port.
 
@@ -430,8 +433,7 @@ it all lands in are in [`docs/fuzzing.md`](docs/fuzzing.md).
 
 Every transform reads a directory of `.bin` files and publishes a directory of
 `.bin` files with a manifest beside it, so transforms compose by being run one
-after another — no pipeline mode, no shared state, and no knowledge of GRQ or
-of each other:
+after another — no shared state, and no knowledge of GRQ or of each other:
 
 ```bash
 neat_ai_refinery --source trainData-binary --output sampled \
@@ -460,6 +462,57 @@ mistaken for records; and when a source carries a manifest, its declared
 encoding and record width are checked against what the run was told to read, so
 quantising an already quantised corpus — or fuzzing one as if it were `float32`
 — fails loud instead of reinterpreting its bytes.
+
+### Ordered pipelines
+
+The `pipeline` subcommand runs that chain in one invocation, from a
+configuration file that states the order:
+
+```bash
+neat_ai_refinery --source trainData-binary --output trainData-binary-refined \
+  --inputs 2511 --outputs 1 pipeline --config pipeline.json
+```
+
+```json
+{
+  "version": 1,
+  "seed": 20260831,
+  "stages": [
+    { "transform": "sample", "rate": 0.05 },
+    { "transform": "fuzz", "distribution": "gaussian", "scale": 0.01, "mode": "relative" },
+    { "transform": "quantise", "scheme": "bfloat16" }
+  ]
+}
+```
+
+```mermaid
+flowchart LR
+    S[(source corpus<br/>float32)] --> P1
+    subgraph scratch ["scratch — removed when the run ends"]
+        P1[stage-01-sample] --> P2[stage-02-fuzz] --> P3[stage-03-quantise]
+    end
+    P3 -->|atomic rename| L[(published corpus<br/>bfloat16 + manifest)]
+```
+
+- **The order is explicit, because transforms do not commute.** Fuzzing then
+  quantising perturbs `float32` values and rounds the result; quantising then
+  fuzzing rounds first and perturbs the rounded values. A pipeline runs exactly
+  the list it was given and records that list in the manifest.
+- **Nothing is baked in.** Each stage is the ordinary standalone transform run
+  over the previous stage's output, so a one-stage pipeline is byte-for-byte
+  the standalone run and every transform stays independently testable.
+- **One seed replays the whole run.** Each stage that draws randomness gets its
+  own seed derived from the pipeline seed and its position, so no two stages
+  share a sequence and moving a stage changes what it draws. A stage may pin
+  its own `seed` instead.
+- **Only the final corpus is published.** Intermediate corpora are scratch and
+  are removed when the run ends; a stage that fails publishes nothing, leaves
+  no scratch, and names the stage that failed.
+- **The manifest records the ordered transforms** under `pipeline`, each with
+  the parameters and seed it ran under.
+
+The configuration schema, the seed derivation and the manifest it lands in are
+in [`docs/pipelines.md`](docs/pipelines.md).
 
 ## Transformation manifest
 
@@ -507,6 +560,9 @@ trainData-binary-sampler/
   adds a `source_record_shape` beside it recording the layout it read; its
   absence, as in the `sample` manifest above, means both corpora share one
   layout.
+- **A pipeline adds `pipeline`** — the ordered transform records, first to
+  last, each with the parameters and seed its stage ran under. Its absence, as
+  above, means the corpus came from the single transform in `transform`.
 - **Never separated from its corpus** — the manifest is written into the
   staging directory *before* the publishing rename, so the atomic swap brings
   corpus and provenance across together. A manifest that cannot be written

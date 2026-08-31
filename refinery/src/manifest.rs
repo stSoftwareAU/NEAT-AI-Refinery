@@ -3,7 +3,9 @@
 //! Every derived corpus Refinery publishes carries a `manifest.json` beside it
 //! recording how it was made: the source identity, the record geometry, the
 //! transform and its parameters, the seed, the counts on both sides, the tool
-//! version, the time, and a checksum of the published corpus.
+//! version, the time, and a checksum of the published corpus. A corpus
+//! produced by a [`pipeline`](crate::pipeline) records the ordered stages
+//! beside that, first to last, because transforms do not generally commute.
 //!
 //! ```text
 //! trainData-binary-sampler/
