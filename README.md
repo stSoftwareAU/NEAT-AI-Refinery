@@ -1,5 +1,7 @@
 # NEAT-AI-Refinery
 
+[![NEAT-AI-Refinery social preview](https://raw.githubusercontent.com/stSoftwareAU/NEAT-AI/Develop/docs/brand/social-previews/neat-ai-refinery.png)](https://github.com/stSoftwareAU/NEAT-AI/blob/Develop/docs/brand/social-previews/neat-ai-refinery.png)
+
 > **Raw training data goes in unchanged. Reproducible derived corpora come out.** 🏭
 
 NEAT-AI-Refinery is a high-performance Rust tool for producing transformed
@@ -59,7 +61,9 @@ The existing system is working, so migration is deliberately evolutionary:
 4. soak in production — done, `./soak/run.sh` and
    [`docs/production-soak.md`](docs/production-soak.md); **Refinery is now the
    GRQ default**, with the switch kept as the rollback;
-5. remove obsolete code only after the new path is proven;
+5. remove obsolete code only after the new path is proven — the one step still
+   outstanding, tracked by
+   [#9](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/9);
 6. add new transforms afterwards — quantisation is done,
    [`docs/quantisation.md`](docs/quantisation.md), and so is fuzzing,
    [`docs/fuzzing.md`](docs/fuzzing.md);
