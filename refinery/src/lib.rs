@@ -63,10 +63,18 @@
 //! seed, counts, tool version, timestamp and a checksum of the output. The
 //! manifest is written into the staging directory before the publishing
 //! rename, so a corpus is never published without it.
+//!
+//! # Measurement
+//!
+//! [`soak`] is the evidence gate the GRQ cut-over was held to, and [`mod@bench`]
+//! is the throughput, peak-RSS and output-size benchmark — both drive the real
+//! binary over a synthetic corpus and measure it the same way, so their
+//! numbers can be read side by side.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod bench;
 pub mod cli;
 pub mod corpus;
 pub mod fuzz;
