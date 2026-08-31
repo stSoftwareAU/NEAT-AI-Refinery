@@ -25,6 +25,15 @@
 //!   --inputs 2511 --outputs 1 fuzz --distribution gaussian --scale 0.01 \
 //!   --mode relative [--targets inputs] [--seed 20260831]
 //! ```
+//!
+//! The `pipeline` subcommand runs that chain in one go, from a configuration
+//! file that states the order — the one thing a chain of transforms cannot
+//! infer for itself:
+//!
+//! ```text
+//! neat_ai_refinery --source trainData-binary --output refined \
+//!   --inputs 2511 --outputs 1 pipeline --config pipeline.json
+//! ```
 
 use std::error::Error;
 use std::fmt;
@@ -35,6 +44,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::corpus::RecordShape;
 use crate::fuzz::{FuzzBounds, FuzzError, FuzzPolicy, FuzzRequest};
 use crate::manifest::CallerMetadata;
+use crate::pipeline::{PipelineConfig, PipelineError, PipelineRequest};
 use crate::quantise::{QuantiseError, QuantiseRequest, QuantiseScheme};
 use crate::sample::{SampleError, SampleRate, SampleRequest};
 
@@ -83,6 +93,10 @@ pub enum Command {
     /// Fuzzing: perturb targeted values with seeded noise, keeping every
     /// record, its order and its layout.
     Fuzz(FuzzArgs),
+
+    /// Pipeline: apply several transforms in the configured order, publishing
+    /// one derived corpus.
+    Pipeline(PipelineArgs),
 }
 
 /// Arguments of the `sample` transform.
@@ -155,6 +169,17 @@ pub struct FuzzArgs {
     pub seed: Option<u64>,
 }
 
+/// Arguments of the `pipeline` transform.
+#[derive(Debug, Args)]
+pub struct PipelineArgs {
+    /// The JSON pipeline configuration: the ordered stages, and the seed.
+    ///
+    /// The order is stated rather than inferred — transforms do not generally
+    /// commute, so the file is the record of what was asked for.
+    #[arg(long, value_name = "FILE")]
+    pub config: PathBuf,
+}
+
 /// A validated transform request, ready to run.
 #[derive(Debug, Clone)]
 pub enum TransformRequest {
@@ -164,6 +189,8 @@ pub enum TransformRequest {
     Quantise(Box<QuantiseRequest>),
     /// A fuzzing run.
     Fuzz(Box<FuzzRequest>),
+    /// An ordered pipeline of transforms.
+    Pipeline(Box<PipelineRequest>),
 }
 
 /// Why a command line could not be turned into a transform request.
@@ -176,6 +203,8 @@ pub enum CliError {
     Quantise(QuantiseError),
     /// The `fuzz` arguments were rejected.
     Fuzz(FuzzError),
+    /// The `pipeline` configuration was rejected.
+    Pipeline(PipelineError),
 }
 
 impl fmt::Display for CliError {
@@ -184,6 +213,7 @@ impl fmt::Display for CliError {
             Self::Sample(error) => write!(f, "{error}"),
             Self::Quantise(error) => write!(f, "{error}"),
             Self::Fuzz(error) => write!(f, "{error}"),
+            Self::Pipeline(error) => write!(f, "{error}"),
         }
     }
 }
@@ -194,6 +224,7 @@ impl Error for CliError {
             Self::Sample(error) => Some(error),
             Self::Quantise(error) => Some(error),
             Self::Fuzz(error) => Some(error),
+            Self::Pipeline(error) => Some(error),
         }
     }
 }
@@ -216,6 +247,12 @@ impl From<FuzzError> for CliError {
     }
 }
 
+impl From<PipelineError> for CliError {
+    fn from(error: PipelineError) -> Self {
+        Self::Pipeline(error)
+    }
+}
+
 impl Cli {
     /// Validates the parsed arguments into a transform request.
     ///
@@ -223,9 +260,10 @@ impl Cli {
     ///
     /// Returns [`CliError::Sample`] for a rate outside `(0, 1]`,
     /// [`CliError::Quantise`] for an unknown scheme, [`CliError::Fuzz`] for an
-    /// unusable perturbation policy, and any of them — depending on the
-    /// subcommand — for an impossible record shape or caller metadata that is
-    /// not a valid `KEY=VALUE` pair.
+    /// unusable perturbation policy, [`CliError::Pipeline`] for a
+    /// configuration that cannot be read or a stage that cannot be run, and
+    /// any of them — depending on the subcommand — for an impossible record
+    /// shape or caller metadata that is not a valid `KEY=VALUE` pair.
     pub fn request(&self) -> Result<TransformRequest, CliError> {
         match &self.command {
             Command::Sample(args) => Ok(TransformRequest::Sample(Box::new(
@@ -235,7 +273,34 @@ impl Cli {
                 self.quantise_request(args)?,
             ))),
             Command::Fuzz(args) => Ok(TransformRequest::Fuzz(Box::new(self.fuzz_request(args)?))),
+            Command::Pipeline(args) => Ok(TransformRequest::Pipeline(Box::new(
+                self.pipeline_request(args)?,
+            ))),
         }
+    }
+
+    /// Validates the arguments of a `pipeline` run, loading the configuration.
+    ///
+    /// The configuration is read and every stage validated here, before a
+    /// single corpus file is opened, so an unusable pipeline is refused rather
+    /// than abandoned part way through.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PipelineError::Io`] or [`PipelineError::Json`] when the
+    /// configuration cannot be read, [`PipelineError::EmptyPipeline`],
+    /// [`PipelineError::UnsupportedConfigVersion`] or
+    /// [`PipelineError::Stage`] when it cannot be used, and
+    /// [`PipelineError::Transform`] for an impossible record shape or caller
+    /// metadata that is not a valid `KEY=VALUE` pair.
+    pub fn pipeline_request(&self, args: &PipelineArgs) -> Result<PipelineRequest, PipelineError> {
+        Ok(PipelineRequest {
+            source: self.source.clone(),
+            output: self.output.clone(),
+            shape: RecordShape::new(self.inputs, self.outputs)?,
+            config: PipelineConfig::load(&args.config)?,
+            metadata: CallerMetadata::parse(&self.metadata)?,
+        })
     }
 
     /// Validates the arguments of a `sample` run.

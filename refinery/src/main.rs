@@ -7,6 +7,7 @@ use clap::Parser;
 use neat_ai_refinery::cli::{Cli, CliError, TransformRequest};
 use neat_ai_refinery::fuzz::{fuzz, FuzzOutcome};
 use neat_ai_refinery::manifest::Manifest;
+use neat_ai_refinery::pipeline::{run_pipeline, PipelineOutcome};
 use neat_ai_refinery::quantise::{quantise, QuantiseOutcome};
 use neat_ai_refinery::sample::{sample, SampleOutcome};
 
@@ -28,8 +29,41 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         TransformRequest::Sample(request) => report_sample(&sample(&request)?),
         TransformRequest::Quantise(request) => report_quantise(&quantise(&request)?),
         TransformRequest::Fuzz(request) => report_fuzz(&fuzz(&request)?),
+        TransformRequest::Pipeline(request) => report_pipeline(&run_pipeline(&request)?),
     }
     Ok(())
+}
+
+/// Reports a pipeline run: the stages in the order they ran, and the seed that
+/// replays the whole chain.
+fn report_pipeline(outcome: &PipelineOutcome) {
+    let order: Vec<&str> = outcome
+        .stages
+        .iter()
+        .map(|stage| stage.transform.name.as_str())
+        .collect();
+    println!(
+        "🏭 {} — {} → {} records through {}, seed {}",
+        outcome.output_file.display(),
+        outcome.records_read,
+        outcome.records_written,
+        order.join(" → "),
+        outcome.seed
+    );
+    for stage in &outcome.stages {
+        println!(
+            "   {}. {} — {} → {} records{}",
+            stage.position,
+            stage.transform.name,
+            stage.records_read,
+            stage.records_written,
+            stage
+                .transform
+                .seed
+                .map_or_else(String::new, |seed| format!(", seed {seed}"))
+        );
+    }
+    report_manifest(&outcome.manifest_file, &outcome.manifest);
 }
 
 /// Reports a sampling run, including the seed needed to reproduce it.

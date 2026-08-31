@@ -6,6 +6,7 @@ use std::path::Path;
 use clap::Parser;
 use neat_ai_refinery::cli::{Cli, CliError, Command, TransformRequest};
 use neat_ai_refinery::fuzz::{FuzzDistribution, FuzzError, FuzzMode, FuzzRequest, FuzzTargets};
+use neat_ai_refinery::pipeline::{PipelineError, PipelineStage};
 use neat_ai_refinery::quantise::{QuantiseError, QuantiseScheme};
 use neat_ai_refinery::sample::{SampleError, SampleRequest};
 
@@ -431,4 +432,119 @@ fn carries_caller_metadata_into_a_fuzz_request() {
     let request = fuzz_request(argv).expect("the request is valid");
 
     assert_eq!(request.metadata.get("grq_observation_version"), Some("42"));
+}
+
+/// The documented `pipeline` invocation, reading the configuration from `path`.
+fn documented_pipeline_invocation(path: &str) -> Vec<String> {
+    [
+        "neat_ai_refinery",
+        "--source",
+        "/data/trainData-binary",
+        "--output",
+        "/data/trainData-binary-refined",
+        "--inputs",
+        "2511",
+        "--outputs",
+        "1",
+        "pipeline",
+        "--config",
+        path,
+    ]
+    .iter()
+    .map(|arg| (*arg).to_string())
+    .collect()
+}
+
+/// Writes a pipeline configuration under a unique temporary path.
+fn write_pipeline_config(label: &str, json: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "neat-ai-refinery-cli-{label}-{}-{}.json",
+        std::process::id(),
+        line!()
+    ));
+    std::fs::write(&path, json).expect("write the configuration");
+    path
+}
+
+#[test]
+fn builds_a_pipeline_request_carrying_the_ordered_stages() {
+    let path = write_pipeline_config(
+        "ordered",
+        r#"{
+          "version": 1,
+          "seed": 20260831,
+          "stages": [
+            { "transform": "sample", "rate": 0.05 },
+            { "transform": "fuzz", "distribution": "gaussian", "scale": 0.01, "mode": "relative" },
+            { "transform": "quantise", "scheme": "bfloat16" }
+          ]
+        }"#,
+    );
+    let cli = Cli::try_parse_from(documented_pipeline_invocation(&path.to_string_lossy()))
+        .expect("the documented shape parses");
+
+    let TransformRequest::Pipeline(request) = cli.request().expect("the request is valid") else {
+        panic!("a pipeline invocation builds a pipeline request");
+    };
+
+    assert_eq!(request.shape.inputs(), 2511);
+    assert_eq!(request.config.seed, Some(20_260_831));
+    assert_eq!(
+        request
+            .config
+            .stages
+            .iter()
+            .map(PipelineStage::name)
+            .collect::<Vec<_>>(),
+        vec!["sample", "fuzz", "quantise"],
+        "the request preserves the configured order"
+    );
+    std::fs::remove_file(&path).expect("remove the configuration");
+}
+
+#[test]
+fn rejects_a_pipeline_configuration_it_cannot_read() {
+    let cli = Cli::try_parse_from(documented_pipeline_invocation("/does/not/exist.json"))
+        .expect("the shape parses");
+
+    let error = cli.request().expect_err("a missing configuration is fatal");
+
+    assert!(
+        matches!(error, CliError::Pipeline(PipelineError::Io { .. })),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn rejects_a_pipeline_with_a_stage_it_cannot_run() {
+    let path = write_pipeline_config(
+        "unusable",
+        r#"{ "version": 1, "stages": [{ "transform": "quantise", "scheme": "int4" }] }"#,
+    );
+    let cli = Cli::try_parse_from(documented_pipeline_invocation(&path.to_string_lossy()))
+        .expect("the shape parses");
+
+    let error = cli
+        .request()
+        .expect_err("an unknown scheme is refused at parse time");
+
+    assert!(
+        matches!(
+            error,
+            CliError::Pipeline(PipelineError::Stage { position: 1, .. })
+        ),
+        "{error:?}"
+    );
+    std::fs::remove_file(&path).expect("remove the configuration");
+}
+
+#[test]
+fn requires_a_configuration_for_a_pipeline_run() {
+    let mut argv = documented_pipeline_invocation("unused.json");
+    argv.truncate(argv.len() - 2);
+
+    assert!(
+        Cli::try_parse_from(argv).is_err(),
+        "a pipeline states its stages, so the configuration is never defaulted"
+    );
 }
