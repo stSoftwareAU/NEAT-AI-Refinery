@@ -1,0 +1,64 @@
+name: Parity Harness
+
+# Golden parity gate (issue #5).
+#
+# Runs Refinery's sampler and the extracted GRQ `Sampler.ts` reference over the
+# same fixture corpora and holds both to the invariants a caller depends on,
+# then proves NEAT-AI's `evolveDir` can consume a Refinery-published corpus
+# unchanged. This gates the GRQ cut-over, so it runs on PRs against any base
+# branch rather than only the ones `ci.yml` covers.
+#
+# `ci.yml` has no Deno, so the parity tests skip there; `REFINERY_PARITY_REQUIRED`
+# below turns a missing Deno into a failure, making this workflow the enforcing
+# gate rather than a second opinion.
+
+on:
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parity-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "2"
+  REFINERY_PARITY_REQUIRED: "1"
+
+jobs:
+  parity:
+    name: Sampler Parity and evolveDir Consumption
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable, frozen 2026-05-18
+
+      - name: Install Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed  # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Cache dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-parity-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-parity-
+            ${{ runner.os }}-cargo-
+
+      - name: Run the golden parity harness
+        run: ./parity/run.sh < /dev/null

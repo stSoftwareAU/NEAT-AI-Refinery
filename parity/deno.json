@@ -1,0 +1,14 @@
+{
+  "$comment": "Deno configuration scoped to the parity harness. Refinery itself is a Rust crate; the two scripts here exist only to run the golden GRQ sampler and the NEAT-AI consumer check against Refinery output.",
+  "lock": true,
+  "minimumDependencyAge": {
+    "age": "P1D",
+    "exclude": [
+      "jsr:@stsoftware/*",
+      "npm:@stsoftware/*"
+    ]
+  },
+  "imports": {
+    "@stsoftware/neat-ai": "jsr:@stsoftware/neat-ai@^7.0.16"
+  }
+}

@@ -104,6 +104,15 @@ can be replayed with `--seed`.
 Given a seed, a run is reproducible: the same source produces the same sample,
 byte for byte.
 
+## Proving the parity
+
+The differences on this page are asserted, not asserted-to. The golden parity
+harness runs this sampler and the extracted GRQ reference over the same fixture
+corpora and holds both to the same invariants, then proves NEAT-AI's
+`evolveDir` consumes a Refinery-published corpus unchanged — see
+[`parity-harness.md`](parity-harness.md). Any difference beyond the ones
+recorded above fails `./parity/run.sh`.
+
 ## Measured performance
 
 `cargo run --release --example sample_throughput` builds a synthetic corpus at
