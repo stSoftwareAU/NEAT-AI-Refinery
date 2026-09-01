@@ -64,6 +64,13 @@
 //! manifest is written into the staging directory before the publishing
 //! rename, so a corpus is never published without it.
 //!
+//! # Failure reporting
+//!
+//! A failed run publishes nothing and exits non-zero. [`exit`] decides which
+//! non-zero code: POSIX `ENOSPC` (28) when the target volume filled up, and 1
+//! for every other failure, so a caller can retry an out-of-space run without
+//! parsing an error message.
+//!
 //! # Measurement
 //!
 //! [`soak`] is the evidence gate the GRQ cut-over was held to, and [`mod@bench`]
@@ -77,6 +84,7 @@
 pub mod bench;
 pub mod cli;
 pub mod corpus;
+pub mod exit;
 pub mod fuzz;
 pub mod manifest;
 pub mod pipeline;
