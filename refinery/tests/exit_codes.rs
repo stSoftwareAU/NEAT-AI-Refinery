@@ -102,6 +102,14 @@ fn a_full_volume_deep_in_a_pipeline_stage_still_exits_with_the_enospc_code() {
 }
 
 #[test]
+fn the_out_of_space_code_is_the_posix_number_callers_gate_on() {
+    // A caller's retry gate matches the number, not the name: GRQ's
+    // `worker/shared/sampler_enospc.sh` retries a sampler run that exited 28.
+    assert_eq!(STORAGE_FULL, 28, "ENOSPC is 28 — a caller gates on it");
+    assert_eq!(FAILURE, 1, "every other failure keeps the ordinary code");
+}
+
+#[test]
 fn every_other_failure_keeps_the_ordinary_exit_code() {
     let refused = CliError::Sample(SampleError::InvalidRate { rate: 1.5 });
     let unwritable = CliError::Sample(SampleError::Io {
