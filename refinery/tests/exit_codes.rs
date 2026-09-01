@@ -31,8 +31,18 @@ const BINARY: &str = env!("CARGO_BIN_EXE_neat_ai_refinery");
 const FULL_DEVICE: &str = "/dev/full";
 
 /// Whether this platform offers a device that reports a full volume.
+///
+/// Linux always does, and that is where CI runs, so a missing device there is a
+/// broken host rather than a reason to report a green test that asserted
+/// nothing: only a platform without the device at all skips these tests.
 fn has_full_device() -> bool {
-    cfg!(unix) && PathBuf::from(FULL_DEVICE).exists()
+    let present = PathBuf::from(FULL_DEVICE).exists();
+    assert!(
+        present || !cfg!(target_os = "linux"),
+        "{FULL_DEVICE} is missing on a Linux host, so the out-of-space path \
+         cannot be exercised — fix the host rather than skipping it"
+    );
+    present
 }
 
 /// Writes one record to `/dev/full` and returns the failure the kernel raised.
@@ -104,7 +114,9 @@ fn a_full_volume_deep_in_a_pipeline_stage_still_exits_with_the_enospc_code() {
 #[test]
 fn the_out_of_space_code_is_the_posix_number_callers_gate_on() {
     // A caller's retry gate matches the number, not the name: GRQ's
-    // `worker/shared/sampler_enospc.sh` retries a sampler run that exited 28.
+    // `worker/shared/sampler_enospc.sh` retries a sampler run that exited 28,
+    // and it cannot see this crate's constant. Changing either number without
+    // the other silently unhooks the gate, so the wire values are pinned here.
     assert_eq!(STORAGE_FULL, 28, "ENOSPC is 28 — a caller gates on it");
     assert_eq!(FAILURE, 1, "every other failure keeps the ordinary code");
 }

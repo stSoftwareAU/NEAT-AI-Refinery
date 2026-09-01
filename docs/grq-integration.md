@@ -123,8 +123,9 @@ the binary installed.
 Not every failure is worth retrying, and one is: a sampler run that stopped
 because the volume filled up succeeds once space is freed, while every other
 failure repeats. Refinery says which it was in the exit code — **28**, POSIX
-`ENOSPC`, for a full target volume and **1** for everything else (see the
-[README](../README.md#exit-codes)) — so the caller gates its retry on a number
+`ENOSPC`, for a full target volume and **1** for a transform it could not
+complete (see the [README](../README.md#exit-codes) for the codes a refused
+command line and a panic carry) — so the caller gates its retry on a number
 rather than on the wording of an error message Refinery does not promise:
 
 ```mermaid

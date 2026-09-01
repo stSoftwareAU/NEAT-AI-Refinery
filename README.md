@@ -211,7 +211,11 @@ says whether the run is worth trying again:
 | --- | --- | --- |
 | `0` | the derived corpus was published | — |
 | `28` | the target volume is full — POSIX `ENOSPC` | retry once space is freed |
-| `1` | any other failure | do not retry; the run needs a fix |
+| `1` | a transform that could not be completed | do not retry; it needs a fix |
+
+**28 is the only retryable code.** A command line the parser refuses exits `2`
+(clap's own code) and a panic exits `101`, as in any Rust binary; like `1`,
+neither is worth another attempt against an unchanged corpus.
 
 The volume is recognised as full from the failure itself — `StorageFull`, or a
 raw `ENOSPC` on a platform that does not map it — however deeply the write is

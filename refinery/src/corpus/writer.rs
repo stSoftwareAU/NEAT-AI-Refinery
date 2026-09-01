@@ -190,6 +190,9 @@ impl RecordWriter {
             return Err(CorpusError::io(&self.path, error));
         }
         self.buffer.clear();
+        // Nothing is buffered and nothing is outstanding: records buffered
+        // after this point are guarded again.
+        self.reported_failure = false;
         Ok(())
     }
 
@@ -209,13 +212,15 @@ impl RecordWriter {
 
 impl Drop for RecordWriter {
     fn drop(&mut self) {
-        // A failure already returned to the caller has been reported loud
-        // once; repeating it as a panic would replace the run's exit code.
+        // These exact records were already reported lost to the caller, as the
+        // error a failed flush returned; repeating that as a panic would say
+        // nothing new and would replace the run's exit code with an abort.
         if self.buffer.is_empty() || self.reported_failure {
             return;
         }
-        // Buffered records must never vanish because `finish` was skipped:
-        // flush them, and fail loud if that flush cannot be completed.
+        // Records buffered since the last successful flush must never vanish
+        // because `finish` was skipped: flush them, and fail loud if that
+        // flush cannot be completed.
         match self.flush() {
             Ok(()) => {}
             // Panicking while already unwinding aborts the process, so report
