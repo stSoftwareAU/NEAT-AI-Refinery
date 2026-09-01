@@ -1,6 +1,6 @@
 //! The published-artefact contract an orchestrator integrates against.
 //!
-//! GRQ runs Refinery behind a rollback switch (issue #7) and reads the run's
+//! GRQ runs Refinery as its only sampler (issues #7 and #9) and reads the run's
 //! record counts out of `manifest.json` rather than by parsing console output,
 //! so those JSON key names are a public interface: renaming one would leave
 //! GRQ unable to measure a run it just published, with nothing in this crate

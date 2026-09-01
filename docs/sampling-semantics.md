@@ -1,6 +1,7 @@
 # Materialised sampling semantics
 
-The sampler is a **port** of GRQ's `src/train/Sampler.ts`, not a redesign. This
+The sampler is a **port** of the TypeScript sampler GRQ carried in
+`src/train/Sampler.ts` — since removed (#9) — not a redesign. This
 document is the reference for what that means: the behaviour reproduced, the
 behaviour deliberately left behind, and where the Rust implementation is
 stricter than the Deno one.
@@ -24,7 +25,12 @@ flowchart TD
 
 ## Behaviour reproduced from the Deno sampler
 
-| Behaviour | Deno (`src/train/Sampler.ts`) | Rust (`refinery/src/sample/`) |
+GRQ's implementation was removed after the cut-over
+([#9](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/9)); the Deno
+column below describes it as it stood at the pinned commit the
+[parity harness](parity-harness.md) reproduces.
+
+| Behaviour | Deno (`src/train/Sampler.ts`, as ported) | Rust (`refinery/src/sample/`) |
 | --- | --- | --- |
 | Corpus discovery | `Deno.readDirSync`, files ending `.bin` | `discover_sources` filtered to the `.bin` extension |
 | Input order | `shuffleStrings(files)` | `sources.shuffle(&mut rng)` |
@@ -100,10 +106,13 @@ recorded fields.
 ## Deliberately not ported
 
 - **ENOSPC exit code 28 and scratch reclamation across earlier runs.** GRQ's
-  `SamplerDiskFailure.ts` / `SamplerScratchCleanup.ts` exist to keep a full
-  production volume recoverable, and its failure path also reclaims the *live*
+  `SamplerDiskFailure.ts` / `SamplerScratchCleanup.ts` existed to keep a full
+  production volume recoverable, and that failure path also reclaimed the *live*
   `-sampler` directory. The port removes only the scratch it created itself and
-  leaves the previously published corpus intact.
+  leaves the previously published corpus intact. The Deno write path went with
+  the sampler (#9), which leaves GRQ's retry gate without an ENOSPC signal —
+  [#38](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/38) tracks
+  giving this binary a distinct exit code and an operator-facing diagnostic.
 - **The `.in-use.lock` lease.** GRQ's cleaners and NEAT-AI readers coordinate
   through it; nothing in Refinery cleans another process's directory, so there
   is nothing to lease yet.
@@ -146,7 +155,7 @@ On a 7-core container, 8 shards × 20 000 records (1533 MiB) at rate 0.05:
 | warm page cache | 0.158 s | 1 012 105 | 9699 MiB/s |
 | warm page cache | 0.160 s | 1 002 612 | 9608 MiB/s |
 
-No side-by-side Deno figure is recorded: GRQ's `Sampler.ts` imports
-`NetworkUtil` and `VersionManager`, so it cannot be run against a synthetic
+No side-by-side Deno figure is recorded: GRQ's `Sampler.ts` imported
+`NetworkUtil` and `VersionManager`, so it could not be run against a synthetic
 corpus without GRQ's creature and version state. Beating Deno is not required
 by this port.

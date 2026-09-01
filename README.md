@@ -57,13 +57,15 @@ The existing system is working, so migration is deliberately evolutionary:
 
 1. reproduce the current GRQ sampling behaviour — done;
 2. prove compatibility against fixed fixtures — done, `./parity/run.sh`;
-3. integrate behind a fallback/feature switch — done, `GRQ_SAMPLER_IMPL`;
+3. integrate behind a fallback/feature switch — done, the `GRQ_SAMPLER_IMPL`
+   switch, since retired with the fallback it selected;
 4. soak in production — done, `./soak/run.sh` and
    [`docs/production-soak.md`](docs/production-soak.md); **Refinery is now the
-   GRQ default**, with the switch kept as the rollback;
-5. remove obsolete code only after the new path is proven — the one step still
-   outstanding, tracked by
-   [#9](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/9);
+   GRQ default**;
+5. remove obsolete code only after the new path is proven — done,
+   [#9](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/9): the
+   rollback period closed and GRQ's TypeScript sampler, its scratch/disk/publish
+   helpers and the switch were removed;
 6. add new transforms afterwards — quantisation is done,
    [`docs/quantisation.md`](docs/quantisation.md), and so is fuzzing,
    [`docs/fuzzing.md`](docs/fuzzing.md);
@@ -217,9 +219,10 @@ list on every machine and a derived corpus stays reproducible.
 
 ## Materialised sampling
 
-`sample` is the first transform, a port of GRQ's `src/train/Sampler.ts`. It
-keeps each source record independently with probability `--rate` and publishes
-the result as a fresh derived corpus:
+`sample` is the first transform, a port of the TypeScript sampler GRQ used to
+carry in `src/train/Sampler.ts` (removed after the cut-over, #9). It keeps each
+source record independently with probability `--rate` and publishes the result
+as a fresh derived corpus:
 
 ```bash
 neat_ai_refinery \
@@ -264,16 +267,16 @@ stricter than the Deno one are documented in
 
 ### Running it in production
 
-**Refinery is the producer of GRQ's sampled corpus.** GRQ selects the sampler
-with `GRQ_SAMPLER_IMPL`: unset — the default — runs this one, and `typescript`
-is the rollback to GRQ's own sampler, kept until that sampler is removed. A
-Refinery failure fails the run rather than being served quietly from the old
-path, both implementations report the same timing and record-count line so a
-fleet run can compare them, and rolling back is one environment variable.
+**Refinery is the only producer of GRQ's sampled corpus.** It ran behind the
+`GRQ_SAMPLER_IMPL` switch beside GRQ's TypeScript sampler until the rollback
+period closed; that sampler and the switch have since been removed (#9). A
+Refinery failure fails the run rather than being served quietly from another
+path, and the run still logs the timing and record-count line in the shape both
+implementations used, so runs either side of the cut-over compare directly.
 
 The caller's half of the contract — what GRQ passes in, the manifest fields it
-reads the counts back from, and where the switch lives — is in
-[`docs/grq-integration.md`](docs/grq-integration.md).
+reads the counts back from, and what a host that still sets the retired switch
+sees — is in [`docs/grq-integration.md`](docs/grq-integration.md).
 
 ### Soaking it
 

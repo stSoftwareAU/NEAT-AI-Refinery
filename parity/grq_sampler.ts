@@ -28,6 +28,10 @@
  * | `reclaimSamplerScratch` / exit code 28 | the staging directory this run created is removed |
  * | staging under `.tmp/` relative to the working directory | staging beside the output, so a fixture run stays in its own directory |
  *
+ * GRQ's own implementation was removed after the cut-over (issue #9), so this
+ * frozen copy is now the sole executable record of the algorithm Refinery is
+ * held to.
+ *
  * Provenance: stSoftwareAU/GRQ commit `3ae5a5987bd0c1bc115dd83c50854a574d806b51`,
  * `src/train/Sampler.ts` sha256
  * `e0b2670c70b6e3526a552d69a8908410ace80afd0571661a81f21756ea6c18db`.

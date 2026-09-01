@@ -1,40 +1,40 @@
 # Integrating Refinery into GRQ
 
-Steps 3 and 4 of the [migration principle](../README.md#migration-principle):
+Steps 3, 4 and 5 of the [migration principle](../README.md#migration-principle):
 Refinery's sampler ran in production behind a rollback switch beside the
-TypeScript sampler it was ported from, and — with the
-[soak evidence](production-soak.md) captured — **Refinery is now the sampler
-GRQ uses by default**. The switch stays, pointing the other way, until the
-TypeScript sampler is removed.
+TypeScript sampler it was ported from, the [soak evidence](production-soak.md)
+carried the cut-over, and — the rollback period having closed with none of the
+[conditions that send it back](production-soak.md#what-sends-it-back) observed —
+**the TypeScript sampler and the switch have been removed** (#9).
 
 Refinery stays application-agnostic — it knows nothing about GRQ. This page is
 the caller's half of the contract: what GRQ passes in, what it reads back, and
-how a fleet run is rolled back.
+what a host still carrying the retired switch sees.
 
-## The switch
+## Configuration
 
 | Variable | Values | Meaning |
 | --- | --- | --- |
-| `GRQ_SAMPLER_IMPL` | unset / `refinery` (default) | `neat_ai_refinery sample` produces the corpus |
-| | `typescript` | GRQ's `src/train/Sampler.ts` produces it — the rollback path, unchanged |
-| | anything else | fatal: an unrecognised value is a typo, not a selection |
 | `NEAT_AI_REFINERY_BINARY_PATH` | path | the built binary; `neat_ai_refinery` is resolved from `PATH` when unset |
 
-Rolling back is `GRQ_SAMPLER_IMPL=typescript` on the affected host — no deploy
-and no revert. With the switch unset and no executable binary found, the run
-fails loud naming both the binary path variable and the rollback value; it does
-not quietly fall back, because a fleet that silently sampled the old way would
-make the comparison meaningless.
+With no executable binary found, the run fails loud naming that variable rather
+than sampling some other way — there is no other way left.
+
+`GRQ_SAMPLER_IMPL` is retired. `refinery` — the only sampler there is — and an
+unset variable pass untouched; **`typescript`, or any other value, is fatal**,
+not ignored. Both `worker/shared/refinery_sampler.sh` (the fleet path) and
+GRQ's `src/train/Sampler.ts` (a run started by hand) stop and say the
+TypeScript sampler was removed. Honouring `typescript` as "run Refinery" would
+leave an operator believing a rollback took effect while the corpus was
+produced by the implementation they were trying to roll away from.
 
 ```mermaid
 flowchart TD
-    S{{GRQ_SAMPLER_IMPL}} -->|unset / refinery| R[neat_ai_refinery sample]
-    S -->|typescript| T[Sampler.ts<br/>rollback path]
-    S -->|anything else| X[fatal: unrecognised switch]
-    T --> L[(trainData-binary-sampler)]
-    R --> L
+    S[GRQ Sampler.ts] --> R[neat_ai_refinery sample]
+    R --> L[(trainData-binary-sampler)]
     L --> E[Creature.evolveDir<br/>unchanged]
-    R -.->|non-zero exit| F[run fails loud<br/>never re-run on the old path]
+    R -.->|non-zero exit| F[run fails loud<br/>nothing to fall back to]
+    X{{GRQ_SAMPLER_IMPL=typescript}} -.->|retired switch| Y[fatal before the run starts]
 ```
 
 ## What GRQ passes in
@@ -52,10 +52,10 @@ neat_ai_refinery \
   sample --rate 0.05
 ```
 
-- **`--inputs` / `--outputs`** come from the same authoritative creature width
-  the TypeScript sampler reads (`NetworkUtil.getEffectiveInputCount()` and
-  `NetworkUtil.OUTPUT_COUNT`), so both implementations interpret the corpus with
-  an identical record shape. A caller without that helper can take the same two
+- **`--inputs` / `--outputs`** come from the authoritative creature width
+  (`NetworkUtil.getEffectiveInputCount()` and `NetworkUtil.OUTPUT_COUNT`) — the
+  same numbers the TypeScript sampler read, so a corpus is interpreted with an
+  unchanged record shape. A caller without that helper can take the same two
   numbers from a creature export with `jq '.input, .output'` — they are
   authoritative top-level integers, and a value below 1 is fatal.
 - **`--metadata`** carries GRQ's observation version into the manifest verbatim.
@@ -87,8 +87,9 @@ an unmeasurable corpus would defeat the comparison this integration exists for.
 
 ## Comparing the two samplers
 
-Both implementations report one line of the same shape, so a fleet run can be
-compared directly without new instrumentation:
+The comparison this migration was measured on: both implementations reported one
+line of the same shape, and the surviving one still logs it, so runs either side
+of the cut-over compare directly without new instrumentation:
 
 ```text
 🏭 sampler implementation=refinery elapsed_ms=412 records_read=1600000 records_written=80042 output=trainData-binary-sampler/sample-5.bin
@@ -107,26 +108,25 @@ corpus.
 ## No silent fallback
 
 A failed Refinery run exits non-zero and publishes nothing; the previously
-published corpus is left exactly as it was. GRQ does **not** re-run the
-TypeScript sampler to rescue it. A hidden fallback would turn a Rust failure
-into a green run whose timings and counts came from the other implementation,
-which is precisely the evidence the soak depends on.
+published corpus is left exactly as it was. Nothing re-runs another sampler to
+rescue it — while both existed, a hidden fallback would have turned a Rust
+failure into a green run whose timings and counts came from the other
+implementation, which is precisely the evidence the soak depended on. Since #9
+there is no other implementation to rescue it with.
 
-The same rule applies before the run starts: on the default path and with no
-executable binary found, the worker fails loud naming
-`NEAT_AI_REFINERY_BINARY_PATH` and the `GRQ_SAMPLER_IMPL=typescript` rollback
-instead of quietly using the old path. Every host on the Refinery default needs
-the binary installed; that is the point of the switch staying.
+The same rule applies before the run starts: with no executable binary found,
+the worker fails loud naming `NEAT_AI_REFINERY_BINARY_PATH`. Every host needs
+the binary installed.
 
 ## Where it lives in GRQ
 
 | File | Role |
 | --- | --- |
-| `src/train/RefinerySampler.ts` | the switch, the argument builder, the subprocess call, the manifest read |
-| `src/train/Sampler.ts` | dispatches to the selected implementation and reports the comparable line |
-| `worker/shared/refinery_sampler.sh` | grants Deno the scoped `--allow-run` for the binary, or fails loud |
+| `src/train/RefinerySampler.ts` | the argument builder, the subprocess call, the manifest read |
+| `src/train/Sampler.ts` | the CLI entrypoint: resolves the corpus and record shape, calls Refinery, reports the comparable line |
+| `worker/shared/refinery_sampler.sh` | grants Deno the scoped `--allow-run` for the binary, or fails loud — and refuses a retired `GRQ_SAMPLER_IMPL` |
 | `worker/sampler.sh`, `worker/teams/run.sh` | source the helper and pass the flag through |
-| `test/train/RefinerySampler_test.ts`, `test/worker/RefinerySamplerSwitch.ts` | cover the switch, the argv, and the fail-loud paths |
+| `test/train/RefinerySampler_test.ts`, `test/worker/RefinerySamplerSwitch.ts` | cover the argv, the retired switch, and the fail-loud paths |
 
 NEAT-AI-scorer is untouched: it already scores many creatures in one pass, and
 this integration only changes how the corpus those generations reuse is

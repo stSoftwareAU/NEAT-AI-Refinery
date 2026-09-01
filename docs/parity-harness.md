@@ -1,8 +1,9 @@
 # Golden parity harness
 
-The harness is the compatibility gate GRQ's cut-over depends on: it runs
-Refinery's sampler and GRQ's `src/train/Sampler.ts` over the same fixture
-corpora, holds both to the invariants a caller depends on, and then hands a
+The harness is the compatibility gate GRQ's cut-over depended on, and the guard
+against Refinery drifting from it since: it runs Refinery's sampler and the
+frozen reference extracted from GRQ's `src/train/Sampler.ts` over the same
+fixture corpora, holds both to the invariants a caller depends on, and then hands a
 Refinery-published corpus to NEAT-AI's `Creature.evolveDir` unchanged.
 
 It runs as ordinary `cargo test` code —
@@ -101,8 +102,12 @@ reproduced verbatim. Only the environment around them is replaced:
 | staging under `.tmp/` relative to the working directory | staging under `.tmp/` beside the output, so a fixture run stays inside its own directory |
 
 Keeping the reference in this repository means the harness pins the behaviour
-being ported. If GRQ's sampler changes, this file and the pinned commit are
-what a reviewer diffs against.
+being ported. GRQ's own implementation was removed after the cut-over
+([#9](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/9)) — with it went
+`publishSamplerDir`, `writeRecordsOrThrow` and `reclaimSamplerScratch`, the GRQ
+symbols named in the table above — so this frozen copy at the pinned commit is
+now the sole executable record of the ported algorithm, and the only thing a
+reviewer diffs against.
 
 ## Intentional differences
 
@@ -142,7 +147,12 @@ packages excluded so a NEAT-AI release is consumable immediately.
 
 ## Cut-over
 
-This harness is what gates the GRQ cut-over. A cut-over is defensible only
-while every invariant above passes against the GRQ sampler version GRQ is
-actually running: if GRQ's `Sampler.ts` moves, re-extract the reference, update
-the pinned commit and sha256 above, and re-run the harness before the switch.
+This harness is what gated the GRQ cut-over: it was defensible only while every
+invariant above passed against the GRQ sampler version GRQ was actually running,
+so a move of GRQ's `Sampler.ts` meant re-extracting the reference, updating the
+pinned commit and sha256 above, and re-running the harness before the switch.
+
+The cut-over is done and GRQ's sampler has been removed (#9), so the reference
+can no longer be re-extracted — and no longer needs to be. It is frozen at the
+pinned commit, and the harness now guards against Refinery drifting away from
+the behaviour it was proven equal to.

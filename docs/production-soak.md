@@ -1,8 +1,9 @@
 # Production soak and the GRQ cut-over
 
 Steps 4 and 5 of the [migration principle](../README.md#migration-principle):
-Refinery is now the sampler GRQ reaches for by default, and the rollback switch
-stays until the TypeScript sampler is removed.
+Refinery is the sampler GRQ reaches for, and — the rollback period having closed
+with none of the conditions below observed — the TypeScript sampler and the
+rollback switch have been removed (#9).
 
 This page is the evidence half of that decision — what was measured, on what,
 and what would send it back.
@@ -12,7 +13,7 @@ flowchart LR
     P[parity harness<br/>issue #5] --> I[integration behind a switch<br/>issue #7]
     I --> S[soak: measured evidence<br/>issue #8]
     S --> D[Refinery is the GRQ default]
-    D -->|GRQ_SAMPLER_IMPL=typescript| R[rollback, no deploy]
+    D -->|rollback period closed, issue #9| R[TypeScript sampler removed]
 ```
 
 ## Running a soak
@@ -90,24 +91,23 @@ worse than naming the gap.
 
 ## Rolling back
 
-Rollback is one environment variable on the affected host, no deploy and no
-revert:
+For the length of the rollback period, rollback was one environment variable on
+the affected host — `GRQ_SAMPLER_IMPL=typescript` — with no deploy and no
+revert. That period has closed, and the fallback it selected was removed with
+it (#9), so **there is no environment variable to set any more**: a host that
+still exports `GRQ_SAMPLER_IMPL` fails loud rather than sampling as though the
+rollback took effect.
 
-```bash
-export GRQ_SAMPLER_IMPL=typescript   # back to src/train/Sampler.ts
-```
-
-Unset — or set to `refinery` — GRQ uses this sampler. The switch, the argument
+Reverting the GRQ removal commit is what a rollback means now. The argument
 contract and the manifest fields GRQ reads back are documented in
 [`grq-integration.md`](grq-integration.md).
 
-The switch stays until GRQ's TypeScript sampler is removed, which is its own
-issue and its own decision.
-
 ## What sends it back
 
-Any of these is a reason to set `GRQ_SAMPLER_IMPL=typescript` on the affected
-hosts and open an issue rather than to patch around it:
+These were the conditions that would have sent the fleet back to the TypeScript
+sampler; none was observed during the rollback period. Any of them is still a
+reason to open an issue rather than to patch around it — the response is now a
+revert of the removal, not an environment variable:
 
 - a sampling run that exits non-zero without a cause in its own output;
 - a published corpus `evolveDir` cannot consume;
