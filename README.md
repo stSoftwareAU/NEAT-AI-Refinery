@@ -223,6 +223,25 @@ wrapped, so a caller gates a retry on the code rather than on the wording of an
 error message it does not own. GRQ's sampler retry loop gates on exactly this
 number; see [`docs/grq-integration.md`](docs/grq-integration.md).
 
+**The code says the volume is full; it cannot say whether another attempt would
+fit.** A sampling run stopped by a full volume therefore also reports the space
+it still needs, because it is the only party that knows:
+
+```text
+neat_ai_refinery: trainData-binary-sampler/sample-5.bin: No space left on device (os error 28) — out of space with 4485 of about 7426 records written; another attempt writes the corpus again from the first record: required_bytes=61440
+```
+
+`required_bytes` is the **whole** planned corpus at this record width, not the
+part still unwritten — nothing resumes a half-written corpus, so the remainder
+would understate what the next attempt has to fit. It is an estimate of the
+corpus (`rate` × source records), not a measurement of the volume.
+
+Free space stays the caller's to measure: this crate is
+`#![forbid(unsafe_code)]` and `std` offers no free-space API, so measuring it
+would mean an FFI dependency to report a number the caller can already read with
+`df` or `statvfs` at the moment it decides. Together the two figures answer the
+only question a retry has — does the free space cover a whole pass?
+
 ### Input discovery and ordering
 
 `discover_sources` expands a source path into the files to read, in read order:

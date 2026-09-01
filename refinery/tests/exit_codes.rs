@@ -122,6 +122,35 @@ fn the_out_of_space_code_is_the_posix_number_callers_gate_on() {
 }
 
 #[test]
+fn a_full_volume_names_the_space_the_pass_still_needs() {
+    // The exit code says the volume is full; it cannot say whether another
+    // attempt would fit. GRQ's retry gate spent three attempts on a volume with
+    // 19 GB free because nothing said the pass needed about 19 GB
+    // (stSoftwareAU/GRQ#4611), so the failure now names it — and the gate reads
+    // the figure out of the message by that spelling, which pins it here.
+    let error = CliError::Sample(SampleError::StorageFull {
+        required_bytes: 61_440,
+        records_written: 4_485,
+        records_expected: 7_426,
+        source: Box::new(SampleError::Io {
+            path: PathBuf::from("/data/trainData-binary-sampler/sample-5.bin"),
+            source: io::Error::from_raw_os_error(28),
+        }),
+    });
+
+    let message = format!("{error}");
+    assert!(
+        message.contains("required_bytes=61440"),
+        "a caller reads the requirement by this spelling: {message}"
+    );
+    assert_eq!(
+        code_for(&error),
+        STORAGE_FULL,
+        "the figures are additional — a full volume still exits 28: {message}"
+    );
+}
+
+#[test]
 fn every_other_failure_keeps_the_ordinary_exit_code() {
     let refused = CliError::Sample(SampleError::InvalidRate { rate: 1.5 });
     let unwritable = CliError::Sample(SampleError::Io {

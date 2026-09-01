@@ -131,9 +131,46 @@ rather than on the wording of an error message Refinery does not promise:
 ```mermaid
 flowchart LR
     R[neat_ai_refinery sample] -->|exit 0| P[(corpus published)]
-    R -->|exit 28<br/>volume full| W[free space, retry the attempt]
+    R -->|exit 28 + required_bytes<br/>volume full| W{free space >=<br/>required_bytes?}
+    W -->|yes| Y[retry the attempt]
+    W -->|no| N[fail once, loudly]
     R -->|exit 1<br/>any other failure| F[fail loud, do not retry]
 ```
+
+### Retrying on evidence, not on hope
+
+The code alone says the volume is full; it cannot say whether another attempt
+would fit, and GRQ's gate proved that gap costs a whole stage. On GRQ-19 the
+sweep between attempts reclaimed **19 GB**, the gate approved the retry on that
+alone, and the pass — which needs about 19 GB — exhausted the volume 97 seconds
+later, three times over
+([stSoftwareAU/GRQ#4611](https://github.com/stSoftwareAU/GRQ/issues/4611)).
+
+So a stopped sampling run reports what another attempt would have to write:
+
+```text
+neat_ai_refinery: trainData-binary-sampler/sample-5.bin: No space left on device (os error 28) — out of space with 4485 of about 7426 records written; another attempt writes the corpus again from the first record: required_bytes=61440
+```
+
+| Figure | Who reports it | Why |
+| --- | --- | --- |
+| `required_bytes` | Refinery | only the run knows the corpus it set out to write |
+| free space | the caller | it measures the volume at the moment it decides |
+
+**The figure is the whole corpus, not the remainder.** A partial corpus is never
+resumed — the next attempt re-reads every source from the first record, and a
+caller sweeping scratch between attempts deletes the partial output before it
+starts. Reporting the 40% left of a pass that died 60% through would approve a
+retry the volume cannot hold, which is the failure this reporting exists to end.
+It is an estimate of the corpus (`rate` × source records), and it is **never
+reported as zero**: a pass that plans no records reports no figure at all,
+because zero would read as "any volume fits".
+
+The caller then has one rule: retry only when the free space it measures covers
+`required_bytes`, and fail once, naming both figures, when it does not or when
+no figure was reported. GRQ's half is `grq_sampler_required_kb` in
+`worker/shared/sampler_enospc.sh`, which reads the report the attempt it is
+judging wrote.
 
 The caller's half is to carry the child's exit code through, unchanged, to the
 gate that reads it: `runRefinerySampler` puts the code on the error it throws,
