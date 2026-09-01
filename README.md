@@ -202,6 +202,27 @@ Malformed input fails loud rather than being processed approximately:
 - a record index past the end of the corpus;
 - a source directory containing no corpus files.
 
+### Exit codes
+
+A failed run publishes nothing and exits non-zero, but *which* non-zero code
+says whether the run is worth trying again:
+
+| Code | Meaning | For the caller |
+| --- | --- | --- |
+| `0` | the derived corpus was published | — |
+| `28` | the target volume is full — POSIX `ENOSPC` | retry once space is freed |
+| `1` | a transform that could not be completed | do not retry; it needs a fix |
+
+**28 is the only retryable code.** A command line the parser refuses exits `2`
+(clap's own code) and a panic exits `101`, as in any Rust binary; like `1`,
+neither is worth another attempt against an unchanged corpus.
+
+The volume is recognised as full from the failure itself — `StorageFull`, or a
+raw `ENOSPC` on a platform that does not map it — however deeply the write is
+wrapped, so a caller gates a retry on the code rather than on the wording of an
+error message it does not own. GRQ's sampler retry loop gates on exactly this
+number; see [`docs/grq-integration.md`](docs/grq-integration.md).
+
 ### Input discovery and ordering
 
 `discover_sources` expands a source path into the files to read, in read order:
@@ -251,7 +272,8 @@ flowchart LR
   output and swapped in with `rename(2)`. A reader resolving the path sees the
   previous corpus or the new one, never an empty or half-built directory.
 - **Failure** — a malformed record, a missing corpus file or a failed write
-  aborts the run with a non-zero exit; the staging directory is removed and the
+  aborts the run with a non-zero exit — 28 when the target volume is full, 1
+  otherwise, as [above](#exit-codes); the staging directory is removed and the
   previously published corpus is left exactly as it was.
 - **Seed** — omit `--seed` and the run seeds from the operating system, as
   production does. The seed used is always reported, so any run can be

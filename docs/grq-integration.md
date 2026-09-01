@@ -118,6 +118,30 @@ The same rule applies before the run starts: with no executable binary found,
 the worker fails loud naming `NEAT_AI_REFINERY_BINARY_PATH`. Every host needs
 the binary installed.
 
+## Retrying a full volume
+
+Not every failure is worth retrying, and one is: a sampler run that stopped
+because the volume filled up succeeds once space is freed, while every other
+failure repeats. Refinery says which it was in the exit code — **28**, POSIX
+`ENOSPC`, for a full target volume and **1** for a transform it could not
+complete (see the [README](../README.md#exit-codes) for the codes a refused
+command line and a panic carry) — so the caller gates its retry on a number
+rather than on the wording of an error message Refinery does not promise:
+
+```mermaid
+flowchart LR
+    R[neat_ai_refinery sample] -->|exit 0| P[(corpus published)]
+    R -->|exit 28<br/>volume full| W[free space, retry the attempt]
+    R -->|exit 1<br/>any other failure| F[fail loud, do not retry]
+```
+
+The caller's half is to carry the child's exit code through, unchanged, to the
+gate that reads it: `runRefinerySampler` puts the code on the error it throws,
+`src/train/Sampler.ts` exits with it, and `worker/shared/sampler_enospc.sh`
+retries the attempt it recognises by that 28. A caller that collapses the code
+to 1 — or reports the failure as a message alone — burns every attempt on a
+disk that only needed room.
+
 ## Where it lives in GRQ
 
 | File | Role |

@@ -22,7 +22,11 @@ const DEFAULT_BUFFER_BYTES: usize = 256 * 1024;
 ///
 /// Call [`RecordWriter::finish`] when done: it flushes the tail and reports how
 /// many records were written. Dropping a writer still flushes, and panics if
-/// that flush fails, so buffered records are never lost in silence.
+/// that flush fails, so buffered records are never lost in silence — unless a
+/// flush has already failed and been reported to the caller as an error, which
+/// is the loud report a panic would only duplicate. Panicking there would also
+/// replace the run's exit code with an abort, hiding *why* it failed from a
+/// caller reading the code (see [`crate::exit`]).
 ///
 /// ```no_run
 /// use neat_ai_refinery::corpus::{DerivedDestination, RecordShape, RecordWriter};
@@ -43,6 +47,8 @@ pub struct RecordWriter {
     shape: RecordShape,
     buffer: Vec<u8>,
     records_written: u64,
+    /// Whether a flush has failed and that failure was returned to the caller.
+    reported_failure: bool,
 }
 
 impl RecordWriter {
@@ -95,6 +101,7 @@ impl RecordWriter {
             shape,
             buffer: Vec::with_capacity(capacity),
             records_written: 0,
+            reported_failure: false,
         })
     }
 
@@ -176,10 +183,16 @@ impl RecordWriter {
         }
         // `write_all` loops until the whole buffer lands, so a short write
         // cannot truncate the derived corpus.
-        self.file
-            .write_all(&self.buffer)
-            .map_err(|e| CorpusError::io(&self.path, e))?;
+        if let Err(error) = self.file.write_all(&self.buffer) {
+            // The caller is being told, so dropping this writer must not
+            // panic over the same buffered records a second time.
+            self.reported_failure = true;
+            return Err(CorpusError::io(&self.path, error));
+        }
         self.buffer.clear();
+        // Nothing is buffered and nothing is outstanding: records buffered
+        // after this point are guarded again.
+        self.reported_failure = false;
         Ok(())
     }
 
@@ -199,11 +212,15 @@ impl RecordWriter {
 
 impl Drop for RecordWriter {
     fn drop(&mut self) {
-        if self.buffer.is_empty() {
+        // These exact records were already reported lost to the caller, as the
+        // error a failed flush returned; repeating that as a panic would say
+        // nothing new and would replace the run's exit code with an abort.
+        if self.buffer.is_empty() || self.reported_failure {
             return;
         }
-        // Buffered records must never vanish because `finish` was skipped:
-        // flush them, and fail loud if that flush cannot be completed.
+        // Records buffered since the last successful flush must never vanish
+        // because `finish` was skipped: flush them, and fail loud if that
+        // flush cannot be completed.
         match self.flush() {
             Ok(()) => {}
             // Panicking while already unwinding aborts the process, so report
