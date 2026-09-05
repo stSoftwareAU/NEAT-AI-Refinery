@@ -6,6 +6,11 @@
 //! compromised upstream would otherwise silently re-execute with this
 //! repository's workflow privileges.
 //!
+//! A digest pin must also name the `:<version>` tag it was resolved from
+//! (`image:1.2.3@sha256:…`). The digest still decides what runs, but dependency
+//! updaters resolve the tag first and rewrite the digest beside it — a tagless
+//! pin is invisible to them and silently rots (Issue #42).
+//!
 //! The checks run as ordinary tests so `cargo test` fails the moment a
 //! workflow gains an unpinned reference.
 
@@ -67,7 +72,8 @@ fn unpinned_uses(yaml: &str) -> Vec<Violation> {
 }
 
 /// Returns every container `image:` reference in `yaml` that is not pinned by
-/// an immutable `@sha256:` digest.
+/// an immutable `@sha256:` digest carrying the `:<version>` tag it was
+/// resolved from.
 fn unpinned_images(yaml: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
 
@@ -90,10 +96,30 @@ fn unpinned_images(yaml: &str) -> Vec<Violation> {
                 reason: "container image is not pinned by @sha256: digest".to_string(),
                 text: line.to_string(),
             });
+        } else if !has_version_tag(reference) {
+            violations.push(Violation {
+                line: index + 1,
+                reason: "digest pin carries no `:<version>` tag — updaters resolve the tag before \
+                         rewriting the digest, so a tagless pin never gets bumped"
+                    .to_string(),
+                text: line.to_string(),
+            });
         }
     }
 
     violations
+}
+
+/// Returns true when the image name in `reference` carries a non-empty
+/// `:<version>` tag ahead of its digest. Only a colon in the final path
+/// segment counts — `ghcr.io:443/owner/image` is a registry port, not a tag.
+fn has_version_tag(reference: &str) -> bool {
+    let name = match reference.split_once('@') {
+        Some((name, _)) => name,
+        None => reference,
+    };
+    let segment = name.rsplit('/').next().unwrap_or(name);
+    matches!(segment.split_once(':'), Some((_, tag)) if !tag.is_empty())
 }
 
 /// Strips a leading YAML list marker and the given key, returning the value.
@@ -311,14 +337,49 @@ fn short_or_non_hex_revision_is_not_accepted_as_a_sha() {
 
 #[test]
 fn digest_pinned_image_passes_and_tag_pinned_image_is_reported() {
-    let pinned =
-        "      image: semgrep/semgrep@sha256:a9ea2d5621c29d815d90c2a3b2f9571da8972ef4  # v1.86.0\n";
+    // The fixture carries `:1.86.0` because a digest pin must now name the
+    // version tag it was resolved from (Issue #42).
+    let pinned = "      image: semgrep/semgrep:1.86.0@sha256:a9ea2d5621c29d815d90c2a3b2f9571da8972ef4  # v1.86.0\n";
     assert_eq!(unpinned_images(pinned), Vec::new());
 
     let unpinned = "      image: semgrep/semgrep:latest\n";
     let violations = unpinned_images(unpinned);
     assert_eq!(violations.len(), 1);
     assert!(violations[0].reason.contains("@sha256:"));
+}
+
+#[test]
+fn digest_pin_without_a_version_tag_is_reported() {
+    let yaml =
+        "      image: semgrep/semgrep@sha256:a9ea2d5621c29d815d90c2a3b2f9571da8972ef4  # v1.86.0\n";
+    let violations = unpinned_images(yaml);
+    assert_eq!(violations.len(), 1, "expected exactly one violation");
+    assert_eq!(violations[0].line, 1);
+    assert!(
+        violations[0].reason.contains("no `:<version>` tag"),
+        "unexpected reason: {}",
+        violations[0].reason
+    );
+}
+
+#[test]
+fn registry_port_is_not_mistaken_for_a_version_tag() {
+    let tagless = "      image: ghcr.io:443/owner/image@sha256:a9ea2d56\n";
+    assert_eq!(
+        unpinned_images(tagless).len(),
+        1,
+        "a registry port is not a version tag"
+    );
+
+    let tagged = "      image: ghcr.io:443/owner/image:2.1.0@sha256:a9ea2d56\n";
+    assert_eq!(unpinned_images(tagged), Vec::new());
+}
+
+#[test]
+fn empty_version_tag_is_reported() {
+    let violations = unpinned_images("      image: semgrep/semgrep:@sha256:a9ea2d56\n");
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].reason.contains("no `:<version>` tag"));
 }
 
 #[test]

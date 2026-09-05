@@ -728,8 +728,12 @@ the full CI graph is still covered:
 
 Every third-party `uses:` reference is pinned to a 40-character commit SHA with
 a trailing `# <version>` comment, and container images are pinned by `sha256:`
-digest. `refinery/tests/workflow_pins.rs` enforces that on every `cargo test`
-run, so an unpinned action fails the build rather than a review.
+digest alongside the `:<version>` tag that digest was resolved from
+(`semgrep/semgrep:1.86.0@sha256:…`). The digest is what actually runs; the tag
+is what a dependency updater resolves before rewriting the digest, so a tagless
+pin would silently freeze. `refinery/tests/workflow_pins.rs` enforces both on
+every `cargo test` run, so an unpinned action fails the build rather than a
+review.
 
 Refinery has no NEAT-AI-core path dependency, so — unlike the sibling
 projects — no workflow checks out a sibling repository.

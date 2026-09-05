@@ -6,10 +6,12 @@ name: Semgrep
 # integration, equivalent to `semgrep/semgrep-action@v1`, which consumes
 # `SEMGREP_APP_TOKEN` and executes `semgrep ci --config <ruleset>`.
 #
-# The image is pinned by digest, not tag: Docker tags are mutable, so an
-# attacker who compromised the `semgrep/semgrep` namespace could re-push the
-# tag to point at a malicious image. Bump the digest and the trailing version
-# comment in lockstep (`docker buildx imagetools inspect semgrep/semgrep:<v>`).
+# The image is pinned by digest: Docker tags are mutable, so an attacker who
+# compromised the `semgrep/semgrep` namespace could re-push the tag to point at
+# a malicious image. The digest alone decides what runs; the `:<version>` tag
+# beside it is what dependency updaters resolve before rewriting the digest, so
+# a tagless pin would never be bumped. Move the tag and the digest in lockstep
+# (`docker buildx imagetools inspect semgrep/semgrep:<v>`).
 
 on:
   pull_request:
@@ -29,7 +31,7 @@ jobs:
     timeout-minutes: 10
     container:
       # semgrep/semgrep v1.86.0 multi-arch manifest, frozen 2026-05-18.
-      image: semgrep/semgrep@sha256:a9ea2d5621c29d815d90c2a3b2f9571da8972ef4ff855c9e4902681730240e35
+      image: semgrep/semgrep:1.86.0@sha256:a9ea2d5621c29d815d90c2a3b2f9571da8972ef4ff855c9e4902681730240e35
     steps:
       - name: Checkout code
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
