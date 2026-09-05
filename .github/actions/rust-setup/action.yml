@@ -1,0 +1,54 @@
+name: Rust setup
+description: >-
+  Installs the pinned Rust toolchain and restores the Cargo cache — the setup
+  block every Rust workflow in this repository shares (Issue #43). Owning it
+  once means the toolchain pin and the cache-key strategy are changed in one
+  place rather than five.
+
+# The `actions/checkout` step deliberately stays with the caller: the runner
+# reads a local action (`uses: ./…`) from the workspace, so the repository must
+# already be checked out before this action can be resolved at all. What the
+# callers keep is a single uniform step, and
+# `refinery/tests/rust_setup_action.rs` holds every one of them to
+# `persist-credentials: false`.
+
+inputs:
+  cache-key-suffix:
+    description: >-
+      Keeps this workflow's Cargo cache distinct from its siblings'
+      (`bench`, `soak`, …). Empty uses the shared `<os>-cargo-<hash>` cache the
+      suffixed ladders fall back to.
+    required: false
+    default: ""
+  components:
+    description: "Comma-separated rustup components, e.g. `rustfmt, clippy`."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable, frozen 2026-05-18
+      with:
+        components: ${{ inputs.components }}
+
+    - name: Resolve the Cargo cache keys
+      id: cache-keys
+      shell: bash
+      env:
+        CACHE_KEY_SUFFIX: ${{ inputs.cache-key-suffix }}
+        LOCK_HASH: ${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        "${ACTION_PATH}/cache-key.sh" "$RUNNER_OS" "$CACHE_KEY_SUFFIX" "$LOCK_HASH" >> "$GITHUB_OUTPUT"
+
+    - name: Cache dependencies
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ steps.cache-keys.outputs.key }}
+        restore-keys: ${{ steps.cache-keys.outputs.restore-keys }}
