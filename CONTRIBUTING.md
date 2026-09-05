@@ -30,6 +30,9 @@ Run the full gate before raising a PR — it mirrors `.github/workflows/ci.yml`:
 ## Workflow changes
 
 Pin every third-party action to a 40-character commit SHA with a trailing
-`# <version>` comment, and every container image by `sha256:` digest. Mutable
-tags are rejected by `refinery/tests/workflow_pins.rs`. See the "Continuous
-integration" section of `README.md` for the gate layout.
+`# <version>` comment, and every container image by `sha256:` digest carrying
+the `:<version>` tag it was resolved from (`image:1.2.3@sha256:…`) — the digest
+decides what runs, the tag is what a dependency updater resolves before
+rewriting the digest. Mutable tags and tagless digests are both rejected by
+`refinery/tests/workflow_pins.rs`. See the "Continuous integration" section of
+`README.md` for the gate layout.
