@@ -36,3 +36,10 @@ decides what runs, the tag is what a dependency updater resolves before
 rewriting the digest. Mutable tags and tagless digests are both rejected by
 `refinery/tests/workflow_pins.rs`. See the "Continuous integration" section of
 `README.md` for the gate layout.
+
+A Rust workflow gets its toolchain and Cargo cache from the composite action
+`.github/actions/rust-setup` — change the pin or the cache strategy there, not
+in the workflow. Pass `cache-key-suffix` to keep a new workflow's cache
+distinct; leave it empty only for the job that writes the shared `<os>-cargo-`
+cache. `refinery/tests/rust_setup_action.rs` fails the build if a workflow
+inlines its own Cargo cache instead.

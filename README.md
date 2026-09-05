@@ -738,6 +738,32 @@ review.
 Refinery has no NEAT-AI-core path dependency, so — unlike the sibling
 projects — no workflow checks out a sibling repository.
 
+The five Rust workflows (`ci.yml`, `cargo-quality.yml`, `benchmark.yml`,
+`parity.yml`, `soak.yml`) share one setup step, the composite action
+`.github/actions/rust-setup`, which installs the pinned toolchain and restores
+the Cargo cache. Each caller passes a `cache-key-suffix` that keeps its cache
+distinct while still falling back to the shared `<os>-cargo-` cache `ci.yml`
+writes:
+
+```mermaid
+flowchart LR
+    CI["ci.yml<br/>(no suffix)"] --> A["./.github/actions/rust-setup"]
+    CQ["cargo-quality.yml<br/>quality"] --> A
+    BM["benchmark.yml<br/>bench"] --> A
+    PA["parity.yml<br/>parity"] --> A
+    SO["soak.yml<br/>soak"] --> A
+    A --> T[dtolnay/rust-toolchain]
+    A --> K["cache-key.sh<br/>&lt;os&gt;-cargo-&lt;suffix&gt;-&lt;hash&gt;"] --> C[actions/cache]
+```
+
+`actions/checkout` stays in each caller — the runner reads a local action from
+the workspace, so the repository must already be checked out before
+`uses: ./.github/actions/rust-setup` resolves.
+`refinery/tests/rust_setup_action.rs` holds the arrangement in place: no
+workflow may inline a Cargo cache again, every caller must keep
+`persist-credentials: false`, and the cache-key script is executed for real so
+its key ladder is covered by `cargo test`.
+
 ## Licence
 
 Apache-2.0.
