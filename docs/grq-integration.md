@@ -158,8 +158,9 @@ What the figure means for the gate:
   retry rebuilds the derived corpus from the source, so that is what has to
   fit;
 - it is `ceil(source records × rate)` whole records plus 1 % for the manifest
-  and for a sample landing above its mean, and never less than the failed
-  attempt had already written;
+  and as a sampling margin, and never less than the failed attempt had already
+  written — an estimate rather than a guarantee, since a sample drawn at a
+  mid-range rate can land above its mean by more than that margin;
 - it is printed for exit `28` alone, and only when the run can state it. With
   no line to read, `grq_sampler_required_kb` reports the requirement as unknown
   and the gate refuses the retry — which is the safe outcome, not a figure the

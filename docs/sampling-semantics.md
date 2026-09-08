@@ -109,10 +109,11 @@ recorded fields.
   `SamplerDiskFailure.ts` / `SamplerScratchCleanup.ts` existed to keep a full
   production volume recoverable, and that failure path also reclaimed the *live*
   `-sampler` directory. The port removes only the scratch it created itself and
-  leaves the previously published corpus intact. The Deno write path went with
-  the sampler (#9), which leaves GRQ's retry gate without an ENOSPC signal —
-  [#38](https://github.com/stSoftwareAU/NEAT-AI-Refinery/issues/38) tracks
-  giving this binary a distinct exit code and an operator-facing diagnostic.
+  leaves the previously published corpus intact. What GRQ's retry gate lost with
+  the Deno write path (#9) it gets back from the binary's own reporting instead:
+  a distinct exit code (**28**, #38) and, beside it, the
+  [`required_bytes=<n>`](../README.md#how-much-space-the-retry-needs) line
+  saying what a fresh attempt costs (#51).
 - **The `.in-use.lock` lease.** GRQ's cleaners and NEAT-AI readers coordinate
   through it; nothing in Refinery cleans another process's directory, so there
   is nothing to lease yet.

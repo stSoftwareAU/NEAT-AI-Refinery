@@ -339,9 +339,11 @@ const NO_FULL_VOLUME: i32 = 90;
 /// Samples `source` onto a volume too small for the result, returning the
 /// binary's exit code and stderr.
 ///
-/// `None` means this host does not offer an unprivileged mount namespace, so
-/// the run could not be driven at all — the caller says so out loud rather
-/// than reporting a test that asserted nothing as a pass.
+/// `None` has exactly two causes, and both are the host declining to offer a
+/// volume that can be filled: `unshare` is not installed, or the kernel
+/// refused the namespace or the mount. Every other fault — a failed spawn, a
+/// child killed by a signal — is raised rather than folded into a skip, so a
+/// harness that breaks fails the build instead of quietly asserting nothing.
 fn sample_onto_a_full_volume(directory: &TempDir, source: &Path) -> Option<(i32, String)> {
     let output = Command::new("unshare")
         .args(["--user", "--map-root-user", "--mount"])
@@ -355,10 +357,20 @@ fn sample_onto_a_full_volume(directory: &TempDir, source: &Path) -> Option<(i32,
             OsStr::new(BINARY),
             source.as_os_str(),
         ])
-        .output()
-        .ok()?;
+        .output();
 
-    let code = output.status.code()?;
+    let output = match output {
+        Ok(output) => output,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
+        Err(error) => panic!("could not run the full-volume harness: {error}"),
+    };
+
+    let code = output.status.code().unwrap_or_else(|| {
+        panic!(
+            "the full-volume harness was killed rather than exiting: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
     if code == NO_FULL_VOLUME {
         return None;
     }

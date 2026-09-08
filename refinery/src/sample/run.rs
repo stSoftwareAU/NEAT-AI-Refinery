@@ -103,9 +103,16 @@ fn pass_bytes(sources: &[PathBuf], request: &SampleRequest) -> Result<u64, Sampl
 /// The bytes a pass over `source_bytes` of fixed-width records publishes.
 ///
 /// Records are never split, so a pass keeping each of them with probability
-/// `rate` writes `ceil(records × rate)` whole records. One per cent is added
+/// `rate` writes `ceil(records × rate)` whole records — rounding to bytes
+/// instead would report a size no corpus can occupy, and would under-state a
+/// pass that keeps one record by up to a whole record. One per cent is added
 /// on top, in integer maths, for the manifest published beside the corpus and
-/// for a sample that lands above its mean.
+/// as a margin for sampling variance.
+///
+/// The result therefore sits between `ceil(source_bytes × rate)` and that
+/// figure plus its headroom and one record — the bound
+/// `the_estimate_stays_within_a_record_of_the_share_at_every_rate` holds it
+/// to.
 fn expected_bytes(source_bytes: u64, bytes_per_record: usize, rate: SampleRate) -> u64 {
     // A record shape always holds at least one value, so the width is never
     // zero and the division is always defined.
@@ -296,7 +303,7 @@ mod tests {
             sum + sum / 100,
             "a rate of 1 keeps every record, so the pass is the whole source plus 1%"
         );
-        let _ = fs::remove_dir_all(&source);
+        fs::remove_dir_all(&source).expect("clean up the fixture");
     }
 
     #[test]
@@ -313,7 +320,7 @@ mod tests {
                 && estimate <= (sum as f64 * 0.05 * 1.02).ceil() as u64,
             "the estimate covers a whole pass without over-stating it: {estimate}"
         );
-        let _ = fs::remove_dir_all(&source);
+        fs::remove_dir_all(&source).expect("clean up the fixture");
     }
 
     #[test]
@@ -357,6 +364,37 @@ mod tests {
         );
 
         assert_eq!(estimate, RECORD_BYTES + 1);
+    }
+
+    #[test]
+    fn the_estimate_stays_within_a_record_of_the_share_at_every_rate() {
+        // The two rates the fixtures above use land on a whole record, which
+        // is what makes them exact. Every other rate rounds up to the next
+        // whole record, and this is how far that can carry the figure: never
+        // below the share of the source a pass keeps, and never more than one
+        // record above it once the headroom is counted.
+        for records in [1_u64, 7, 10, 100, 12_345] {
+            for rate in [0.001, 0.01, 0.055, 0.5, 0.9, 0.99, 1.0] {
+                let source_bytes = records * RECORD_BYTES;
+                let share = source_bytes as f64 * rate;
+
+                let estimate = expected_bytes(
+                    source_bytes,
+                    RECORD_BYTES as usize,
+                    SampleRate::new(rate).expect("a valid rate"),
+                );
+
+                assert!(
+                    estimate >= share.ceil() as u64,
+                    "a pass over {source_bytes} bytes at {rate} needs at least its share: {estimate}"
+                );
+                assert!(
+                    estimate <= (share * 1.01).ceil() as u64 + RECORD_BYTES,
+                    "the figure stays within the headroom and one whole record \
+                     of that share: {estimate} for {source_bytes} bytes at {rate}"
+                );
+            }
+        }
     }
 
     #[test]
