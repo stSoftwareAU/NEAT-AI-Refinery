@@ -7,13 +7,17 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
 
-use super::{SampleError, SampleRequest};
+use super::{SampleError, SampleRate, SampleRequest};
 use crate::corpus::{DerivedDestination, RecordReader, RecordWriter};
 use crate::manifest::{Checksum, Manifest, OutputArtefact, SourceIdentity, TransformRecord};
 use crate::transform::{corpus_files, file_bytes, resolved_source, source_file, StagedCorpus};
 
 /// The transform name recorded in the manifest.
 const TRANSFORM_NAME: &str = "sample";
+
+/// The divisor of the headroom added to an estimated pass: a hundredth, so a
+/// reported requirement covers the manifest and a sample above its mean.
+const HEADROOM_DIVISOR: u64 = 100;
 
 /// What a completed sampling run produced.
 #[derive(Debug, Clone)]
@@ -52,8 +56,93 @@ pub struct SampleOutcome {
 pub fn sample(request: &SampleRequest) -> Result<SampleOutcome, SampleError> {
     let source = &request.source;
     let resolved_source = resolved_source(source, &request.output)?;
+    let sources = corpus_files(source)?;
 
-    let mut sources = corpus_files(source)?;
+    // Measured before a byte is written: a run that stops for want of space
+    // has to say what a whole fresh attempt costs, and the figure is only
+    // cheap to obtain while the sources are still in hand.
+    let whole_pass = pass_bytes(&sources, request)?;
+    let mut written = 0_u64;
+
+    run(request, resolved_source, sources, &mut written)
+        // A retry writes the whole pass again, so the requirement is that
+        // pass — never less than this attempt had already put on the volume.
+        .map_err(|error| error.with_required_bytes(whole_pass.max(written)))
+}
+
+/// The bytes a whole sampling pass publishes, worked out before it is run.
+///
+/// This is the figure a run that fails for want of space reports as its
+/// requirement: a fresh attempt re-reads every source file and writes the
+/// derived corpus from scratch, so the space it needs is the size of a whole
+/// pass rather than the remainder of the one that failed.
+///
+/// # Errors
+///
+/// Returns [`SampleError::NoCorpusFiles`] for a source directory with no
+/// `.bin` files, and [`SampleError::Io`] when a source file cannot be
+/// inspected.
+pub fn whole_pass_bytes(request: &SampleRequest) -> Result<u64, SampleError> {
+    let sources = corpus_files(&request.source)?;
+    pass_bytes(&sources, request)
+}
+
+/// The size of a whole pass over `sources`, headroom included.
+fn pass_bytes(sources: &[PathBuf], request: &SampleRequest) -> Result<u64, SampleError> {
+    let mut source_bytes = 0_u64;
+    for path in sources {
+        source_bytes = source_bytes.saturating_add(file_bytes(path)?);
+    }
+    Ok(expected_bytes(
+        source_bytes,
+        request.shape.bytes_per_record(),
+        request.rate,
+    ))
+}
+
+/// The bytes a pass over `source_bytes` of fixed-width records publishes.
+///
+/// Records are never split, so a pass keeping each of them with probability
+/// `rate` writes `ceil(records × rate)` whole records — rounding to bytes
+/// instead would report a size no corpus can occupy, and would under-state a
+/// pass that keeps one record by up to a whole record. One per cent is added
+/// on top, in integer maths, for the manifest published beside the corpus and
+/// as a margin for sampling variance.
+///
+/// The result therefore sits between `ceil(source_bytes × rate)` and that
+/// figure plus its headroom and one record — the bound
+/// `the_estimate_stays_within_a_record_of_the_share_at_every_rate` holds it
+/// to.
+fn expected_bytes(source_bytes: u64, bytes_per_record: usize, rate: SampleRate) -> u64 {
+    // A record shape always holds at least one value, so the width is never
+    // zero and the division is always defined.
+    let width = bytes_per_record as u64;
+    let records = source_bytes / width;
+    let kept = kept_records(records, rate.value());
+    let corpus = kept.saturating_mul(width);
+
+    corpus.saturating_add(corpus.div_ceil(HEADROOM_DIVISOR))
+}
+
+/// Records a pass keeps out of `records`, rounded up: the sample is a random
+/// variable, and reporting less than the mean would under-state the space.
+fn kept_records(records: u64, rate: f64) -> u64 {
+    let kept = (records as f64 * rate).ceil();
+    if kept.is_finite() && kept > 0.0 {
+        // `rate` is at most 1, so this never exceeds the records read.
+        (kept as u64).min(records)
+    } else {
+        0
+    }
+}
+
+/// Runs the pass itself, reporting the bytes it wrote through `written`.
+fn run(
+    request: &SampleRequest,
+    resolved_source: PathBuf,
+    mut sources: Vec<PathBuf>,
+    written: &mut u64,
+) -> Result<SampleOutcome, SampleError> {
     let seed = request.seed.unwrap_or_else(|| rand::rng().random());
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -69,7 +158,7 @@ pub fn sample(request: &SampleRequest) -> Result<SampleOutcome, SampleError> {
     let mut read_files = Vec::with_capacity(sources.len());
     for path in &sources {
         read_files.push(source_file(path)?);
-        records_read += sample_file(path, request, &mut rng, &mut writer)?;
+        records_read += sample_file(path, request, &mut rng, &mut writer, written)?;
     }
     let records_written = writer.finish()?;
 
@@ -131,6 +220,7 @@ fn sample_file(
     request: &SampleRequest,
     rng: &mut StdRng,
     writer: &mut RecordWriter,
+    written: &mut u64,
 ) -> Result<u64, SampleError> {
     let rate = request.rate.value();
     let only = [path.to_path_buf()];
@@ -150,7 +240,180 @@ fn sample_file(
     kept.shuffle(rng);
     for record in &kept {
         writer.write_record(record)?;
+        // Tracked as it goes, so a run that stops for want of space knows what
+        // it had already put on the volume.
+        *written = written.saturating_add(record.len() as u64);
     }
 
     Ok(records_read)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use crate::corpus::RecordShape;
+    use crate::manifest::CallerMetadata;
+
+    /// Bytes one record of the test shape occupies: three `f32` values.
+    const RECORD_BYTES: u64 = 12;
+
+    /// A throwaway source directory holding two corpus files, of
+    /// `first_records` and `second_records` records.
+    fn two_file_source(label: &str, first_records: u64, second_records: u64) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "refinery-pass-bytes-{label}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).expect("create the source directory");
+
+        for (name, records) in [
+            ("shard-1.bin", first_records),
+            ("shard-2.bin", second_records),
+        ] {
+            let bytes = vec![0_u8; usize::try_from(records * RECORD_BYTES).expect("a small file")];
+            fs::write(directory.join(name), &bytes).expect("write a corpus file");
+        }
+        directory
+    }
+
+    /// A sampling request over `source` at `rate`.
+    fn request(source: &Path, rate: f64) -> SampleRequest {
+        SampleRequest {
+            source: source.to_path_buf(),
+            output: source.with_extension("derived"),
+            shape: RecordShape::new(2, 1).expect("a three-value record shape"),
+            rate: SampleRate::new(rate).expect("a valid rate"),
+            seed: Some(7),
+            metadata: CallerMetadata::default(),
+        }
+    }
+
+    #[test]
+    fn a_whole_pass_at_full_rate_is_the_source_plus_headroom() {
+        let source = two_file_source("full-rate", 40, 60);
+        let sum = (40 + 60) * RECORD_BYTES;
+
+        let estimate = whole_pass_bytes(&request(&source, 1.0)).expect("estimate the pass");
+
+        assert_eq!(
+            estimate,
+            sum + sum / 100,
+            "a rate of 1 keeps every record, so the pass is the whole source plus 1%"
+        );
+        fs::remove_dir_all(&source).expect("clean up the fixture");
+    }
+
+    #[test]
+    fn a_whole_pass_at_a_sampling_rate_is_that_share_plus_headroom() {
+        let source = two_file_source("sampling-rate", 40, 60);
+        let sum = (40 + 60) * RECORD_BYTES;
+        let share = 60_u64; // ceil(0.05 × 1200) — five of the hundred records.
+
+        let estimate = whole_pass_bytes(&request(&source, 0.05)).expect("estimate the pass");
+
+        assert_eq!(estimate, share + share.div_ceil(100));
+        assert!(
+            estimate >= (sum as f64 * 0.05).ceil() as u64
+                && estimate <= (sum as f64 * 0.05 * 1.02).ceil() as u64,
+            "the estimate covers a whole pass without over-stating it: {estimate}"
+        );
+        fs::remove_dir_all(&source).expect("clean up the fixture");
+    }
+
+    #[test]
+    fn a_partial_record_at_the_end_of_a_source_is_not_counted() {
+        // Records are never split, so a trailing partial one buys no space in
+        // the derived corpus — and no reader would accept it either.
+        let whole = expected_bytes(
+            10 * RECORD_BYTES,
+            RECORD_BYTES as usize,
+            SampleRate::new(1.0).expect("a valid rate"),
+        );
+        let ragged = expected_bytes(
+            10 * RECORD_BYTES + 5,
+            RECORD_BYTES as usize,
+            SampleRate::new(1.0).expect("a valid rate"),
+        );
+
+        assert_eq!(whole, ragged);
+    }
+
+    #[test]
+    fn an_empty_source_needs_no_space() {
+        assert_eq!(
+            expected_bytes(
+                0,
+                RECORD_BYTES as usize,
+                SampleRate::new(0.5).expect("a valid rate")
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn a_rate_below_one_record_still_reserves_a_whole_one() {
+        // Ten records at a rate of 0.01 average a tenth of a record; a run that
+        // keeps one writes a whole one, so that is what a retry must fit.
+        let estimate = expected_bytes(
+            10 * RECORD_BYTES,
+            RECORD_BYTES as usize,
+            SampleRate::new(0.01).expect("a valid rate"),
+        );
+
+        assert_eq!(estimate, RECORD_BYTES + 1);
+    }
+
+    #[test]
+    fn the_estimate_stays_within_a_record_of_the_share_at_every_rate() {
+        // The two rates the fixtures above use land on a whole record, which
+        // is what makes them exact. Every other rate rounds up to the next
+        // whole record, and this is how far that can carry the figure: never
+        // below the share of the source a pass keeps, and never more than one
+        // record above it once the headroom is counted.
+        for records in [1_u64, 7, 10, 100, 12_345] {
+            for rate in [0.001, 0.01, 0.055, 0.5, 0.9, 0.99, 1.0] {
+                let source_bytes = records * RECORD_BYTES;
+                let share = source_bytes as f64 * rate;
+
+                let estimate = expected_bytes(
+                    source_bytes,
+                    RECORD_BYTES as usize,
+                    SampleRate::new(rate).expect("a valid rate"),
+                );
+
+                assert!(
+                    estimate >= share.ceil() as u64,
+                    "a pass over {source_bytes} bytes at {rate} needs at least its share: {estimate}"
+                );
+                assert!(
+                    estimate <= (share * 1.01).ceil() as u64 + RECORD_BYTES,
+                    "the figure stays within the headroom and one whole record \
+                     of that share: {estimate} for {source_bytes} bytes at {rate}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_source_that_cannot_be_scanned_is_reported_rather_than_guessed() {
+        let missing = std::env::temp_dir().join(format!(
+            "refinery-pass-bytes-missing-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&missing);
+
+        let error = whole_pass_bytes(&request(&missing, 0.05))
+            .expect_err("a source that is not there cannot be estimated");
+
+        assert!(
+            matches!(
+                error,
+                SampleError::NoCorpusFiles { .. } | SampleError::Corpus(_) | SampleError::Io { .. }
+            ),
+            "{error:?}"
+        );
+    }
 }

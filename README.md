@@ -223,6 +223,33 @@ wrapped, so a caller gates a retry on the code rather than on the wording of an
 error message it does not own. GRQ's sampler retry loop gates on exactly this
 number; see [`docs/grq-integration.md`](docs/grq-integration.md).
 
+#### How much space the retry needs
+
+Knowing a run is worth retrying is not the same as knowing there is now room
+for it. A `sample` run that exits `28` therefore reports what a fresh attempt
+costs, on its own line on stderr beside the failure:
+
+```text
+neat_ai_refinery: /data/trainData-binary-sampler/sample-5.bin: No space left on device (os error 28) — a whole fresh attempt needs 8080000 bytes of free space
+neat_ai_refinery: required_bytes=8080000
+```
+
+- The token is exactly `required_bytes=` followed by ASCII digits, anywhere on
+  the line, so a caller reads it with
+  `grep -o 'required_bytes=[0-9][0-9]*'` out of the run log.
+- The figure is a **whole pass** — every byte a fresh attempt writes, not the
+  remainder of the one that failed — because a retry starts from nothing: the
+  staging directory of the failed run is reclaimed and the derived corpus is
+  built again from the source. It is `ceil(source records × rate)` whole
+  records — a partial record is never written — plus 1 % for the manifest and
+  as a sampling margin, and never less than the failed attempt had already
+  written. It is an estimate, not a guarantee: sampling is random, so a corpus
+  drawn at a mid-range rate can still land above it.
+- The line is printed **only** for exit `28`, and only when the run can state
+  the figure. A run that cannot — a transform other than `sample` — prints
+  nothing rather than a guess, so a caller gating on the figure refuses the
+  retry instead of freeing the wrong amount and failing again.
+
 ### Input discovery and ordering
 
 `discover_sources` expands a source path into the files to read, in read order:
