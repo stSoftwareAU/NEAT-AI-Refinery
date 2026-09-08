@@ -27,6 +27,11 @@ Run the full gate before raising a PR — it mirrors `.github/workflows/ci.yml`:
 ./quality.sh
 ```
 
+There is no override for this gate. The one procedure that skips the weekly
+dependency cadence — an actively-exploited advisory — still runs every check;
+it is written down in
+[`docs/incident-response.md`](docs/incident-response.md).
+
 ## Workflow changes
 
 Pin every third-party action to a 40-character commit SHA with a trailing
