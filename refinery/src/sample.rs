@@ -29,4 +29,4 @@ mod run;
 
 pub use error::SampleError;
 pub use plan::{SampleRate, SampleRequest};
-pub use run::{sample, SampleOutcome};
+pub use run::{sample, whole_pass_bytes, SampleOutcome};

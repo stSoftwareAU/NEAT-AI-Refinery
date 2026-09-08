@@ -3,13 +3,15 @@
 //!
 //! The exit code says which kind of failure it was — 28 for a full target
 //! volume, 1 for everything else — so a caller can retry the one failure that
-//! is worth retrying. See [`neat_ai_refinery::exit`].
+//! is worth retrying, and a full volume also reports `required_bytes=<n>` so
+//! the caller knows how much space that retry needs. See
+//! [`neat_ai_refinery::exit`].
 
 use std::process::ExitCode;
 
 use clap::Parser;
 use neat_ai_refinery::cli::{Cli, CliError, TransformRequest};
-use neat_ai_refinery::exit::code_for;
+use neat_ai_refinery::exit::{code_for, failure_report};
 use neat_ai_refinery::fuzz::{fuzz, FuzzOutcome};
 use neat_ai_refinery::manifest::Manifest;
 use neat_ai_refinery::pipeline::{run_pipeline, PipelineOutcome};
@@ -22,7 +24,9 @@ fn main() -> ExitCode {
     match run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("neat_ai_refinery: {error}");
+            // The report carries the failure and, for a full volume, the space
+            // a fresh attempt needs — see [`neat_ai_refinery::exit`].
+            eprint!("{}", failure_report(&error));
             ExitCode::from(code_for(&error))
         }
     }

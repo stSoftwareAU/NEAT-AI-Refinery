@@ -135,6 +135,36 @@ flowchart LR
     R -->|exit 1<br/>any other failure| F[fail loud, do not retry]
 ```
 
+### How much space the retry needs
+
+Exit `28` says the run is worth retrying; it does not say there is now room for
+it. A `sample` run that fills the volume therefore prints what a fresh attempt
+costs on its own stderr line, straight after the failure:
+
+```text
+neat_ai_refinery: /data/trainData-binary-sampler/sample-5.bin: No space left on device (os error 28) — a whole fresh attempt needs 8080000 bytes of free space
+neat_ai_refinery: required_bytes=8080000
+```
+
+`src/train/RefinerySampler.ts` spawns the binary with `stderr: "inherit"`, so
+the line lands in the run log that `worker/shared/sampler_enospc.sh`'s
+`grq_sampler_required_kb` greps with `grep -o 'required_bytes=[0-9][0-9]*'` —
+the token matches anywhere on the line, so nothing on the GRQ side changes to
+read it.
+
+What the figure means for the gate:
+
+- it is the size of a **whole pass**, not the remainder of the failed one: a
+  retry rebuilds the derived corpus from the source, so that is what has to
+  fit;
+- it is `ceil(source records × rate)` whole records plus 1 % for the manifest
+  and for a sample landing above its mean, and never less than the failed
+  attempt had already written;
+- it is printed for exit `28` alone, and only when the run can state it. With
+  no line to read, `grq_sampler_required_kb` reports the requirement as unknown
+  and the gate refuses the retry — which is the safe outcome, not a figure the
+  Refinery guessed.
+
 The caller's half is to carry the child's exit code through, unchanged, to the
 gate that reads it: `runRefinerySampler` puts the code on the error it throws,
 `src/train/Sampler.ts` exits with it, and `worker/shared/sampler_enospc.sh`

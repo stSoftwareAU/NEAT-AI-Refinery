@@ -53,6 +53,49 @@ pub enum SampleError {
         /// The originating error.
         source: io::Error,
     },
+    /// The target volume filled up, carrying what a whole fresh attempt costs.
+    ///
+    /// The run itself failed as one of the variants above; this wrapper adds
+    /// the one fact a caller deciding whether to retry cannot work out for
+    /// itself — how much free space the next attempt needs.
+    StorageFull {
+        /// Bytes a whole fresh pass publishes, headroom included, and never
+        /// fewer than the failed attempt had already written.
+        required_bytes: u64,
+        /// The out-of-space failure itself.
+        source: Box<SampleError>,
+    },
+}
+
+impl SampleError {
+    /// This failure restated as a full volume needing `required_bytes`, or
+    /// unchanged when the run did not stop for want of space.
+    ///
+    /// Only an out-of-space failure is wrapped: every other failure repeats on
+    /// a retry, so reporting a space requirement beside it would invite a
+    /// caller to free space and try again for nothing.
+    #[must_use]
+    pub fn with_required_bytes(self, required_bytes: u64) -> Self {
+        if self.required_bytes().is_some() || !crate::exit::is_storage_full(&self) {
+            return self;
+        }
+        Self::StorageFull {
+            required_bytes,
+            source: Box::new(self),
+        }
+    }
+
+    /// Bytes a whole fresh attempt needs, when this failure knows.
+    ///
+    /// `None` is the honest answer for every failure that carries no estimate:
+    /// a caller gating a retry on the figure refuses rather than guessing.
+    #[must_use]
+    pub const fn required_bytes(&self) -> Option<u64> {
+        match self {
+            Self::StorageFull { required_bytes, .. } => Some(*required_bytes),
+            _ => None,
+        }
+    }
 }
 
 impl From<CorpusError> for SampleError {
@@ -130,6 +173,16 @@ impl fmt::Display for SampleError {
                 destination.display()
             ),
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
+            // The machine-readable figure is a line of its own — see
+            // [`crate::exit::failure_report`] — so this says the same thing in
+            // the operator's words rather than repeating the token.
+            Self::StorageFull {
+                required_bytes,
+                source,
+            } => write!(
+                f,
+                "{source} — a whole fresh attempt needs {required_bytes} bytes of free space"
+            ),
         }
     }
 }
@@ -140,6 +193,9 @@ impl Error for SampleError {
             Self::Corpus(error) => Some(error),
             Self::Manifest(error) => Some(error),
             Self::Publish { source, .. } | Self::Io { source, .. } => Some(source),
+            // The wrapped failure is what the volume actually raised, so the
+            // out-of-space classification still reads it off the chain.
+            Self::StorageFull { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }

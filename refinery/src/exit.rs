@@ -30,6 +30,11 @@
 use std::error::Error;
 use std::io;
 
+use crate::sample::SampleError;
+
+/// The name every reported failure is prefixed with, as the binary is invoked.
+const PROGRAM: &str = "neat_ai_refinery";
+
 /// The exit code a run reports when the target volume is full: POSIX `ENOSPC`.
 pub const STORAGE_FULL: u8 = 28;
 
@@ -65,6 +70,57 @@ pub fn is_storage_full(error: &(dyn Error + 'static)) -> bool {
     let payload = filesystem.and_then(io::Error::get_ref);
     payload.is_some_and(|payload| is_storage_full(payload))
         || error.source().is_some_and(is_storage_full)
+}
+
+/// How many bytes a fresh attempt needs, when the failure knows.
+///
+/// Only a full volume carries a requirement, and only the sampler computes one
+/// — so the chain is searched for a [`SampleError::StorageFull`], however
+/// deeply a pipeline stage has wrapped it. `None` is the honest answer
+/// everywhere else: a caller gating a retry on the figure refuses rather than
+/// acting on a guess.
+#[must_use]
+pub fn required_bytes(error: &(dyn Error + 'static)) -> Option<u64> {
+    error
+        .downcast_ref::<SampleError>()
+        .and_then(SampleError::required_bytes)
+        .or_else(|| error.source().and_then(required_bytes))
+}
+
+/// The stderr report of a failed run, ready to print.
+///
+/// The failure itself is always the first line. A full volume that knows what
+/// a fresh attempt costs adds a second, `required_bytes=<n>` — the whole pass
+/// a retry writes, in ASCII digits — so a caller frees that much space and
+/// retries on evidence instead of on hope. Nothing is added when the
+/// requirement is unknown, and nothing is added for any other failure: a
+/// figure beside an exit 1 would invite a retry that cannot succeed.
+///
+/// ```
+/// use std::io;
+/// use std::path::PathBuf;
+///
+/// use neat_ai_refinery::exit::failure_report;
+/// use neat_ai_refinery::sample::SampleError;
+///
+/// let full = SampleError::Io {
+///     path: PathBuf::from("trainData-binary-sampler/sample-5.bin"),
+///     source: io::Error::from(io::ErrorKind::StorageFull),
+/// };
+/// let report = failure_report(&full.with_required_bytes(4_096));
+///
+/// assert!(report.lines().any(|line| line.ends_with("required_bytes=4096")));
+/// ```
+#[must_use]
+pub fn failure_report(error: &(dyn Error + 'static)) -> String {
+    let mut report = format!("{PROGRAM}: {error}\n");
+
+    // The figure is only ever printed beside the one code it explains.
+    let requirement = required_bytes(error).filter(|_| code_for(error) == STORAGE_FULL);
+    if let Some(bytes) = requirement {
+        report.push_str(&format!("{PROGRAM}: required_bytes={bytes}\n"));
+    }
+    report
 }
 
 /// Whether one filesystem failure is an out-of-space one.
@@ -140,5 +196,81 @@ mod tests {
     #[test]
     fn a_failure_carrying_no_filesystem_error_is_an_ordinary_one() {
         assert_eq!(code_for(&Opaque), FAILURE);
+    }
+
+    #[test]
+    fn a_full_volume_reports_what_a_fresh_attempt_needs() {
+        let error =
+            sample_io(io::Error::from(io::ErrorKind::StorageFull)).with_required_bytes(1_234_567);
+
+        let report = failure_report(&error);
+
+        assert_eq!(required_bytes(&error), Some(1_234_567));
+        assert_eq!(
+            report.lines().last(),
+            Some("neat_ai_refinery: required_bytes=1234567"),
+            "the token is the last thing on its own line, in ASCII digits: {report}"
+        );
+        assert_eq!(
+            report
+                .lines()
+                .filter(|line| line.contains("required_bytes="))
+                .count(),
+            1,
+            "a caller reading the log must find one figure, not several: {report}"
+        );
+    }
+
+    #[test]
+    fn a_full_volume_that_knows_no_requirement_reports_none() {
+        // Every other transform writes without an estimate. Printing a guess
+        // would have a caller free the wrong amount and retry into the same
+        // wall; saying nothing has it refuse the retry, as it does today.
+        let error = sample_io(io::Error::from(io::ErrorKind::StorageFull));
+
+        let report = failure_report(&error);
+
+        assert_eq!(required_bytes(&error), None);
+        assert_eq!(code_for(&error), STORAGE_FULL);
+        assert!(!report.contains("required_bytes="), "{report}");
+    }
+
+    #[test]
+    fn an_ordinary_failure_never_reports_a_requirement() {
+        // A requirement beside an exit 1 would invite a retry that cannot
+        // succeed however much space is freed.
+        let error =
+            sample_io(io::Error::from(io::ErrorKind::PermissionDenied)).with_required_bytes(4_096);
+
+        let report = failure_report(&error);
+
+        assert_eq!(code_for(&error), FAILURE);
+        assert!(!report.contains("required_bytes="), "{report}");
+        assert_eq!(
+            report,
+            format!("neat_ai_refinery: {error}\n"),
+            "the failure itself is still reported in full"
+        );
+    }
+
+    #[test]
+    fn a_requirement_is_found_however_deeply_the_failure_is_wrapped() {
+        let error = crate::cli::CliError::Sample(
+            sample_io(io::Error::from(io::ErrorKind::StorageFull)).with_required_bytes(64),
+        );
+
+        assert_eq!(required_bytes(&error), Some(64));
+        assert!(failure_report(&error).ends_with("required_bytes=64\n"));
+    }
+
+    #[test]
+    fn a_requirement_is_added_once_and_not_replaced() {
+        // The sampler is the only estimator; a pipeline wrapping its failure
+        // must not overwrite the figure with one of its own.
+        let error = sample_io(io::Error::from(io::ErrorKind::StorageFull))
+            .with_required_bytes(64)
+            .with_required_bytes(999);
+
+        assert_eq!(required_bytes(&error), Some(64));
     }
 }
