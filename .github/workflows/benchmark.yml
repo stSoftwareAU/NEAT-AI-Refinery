@@ -64,6 +64,7 @@ jobs:
         # floor sits well below the ~1.9× measured on both a developer host and
         # a hosted runner, so it fails on a regression rather than on weather.
         run: |
+          set -euo pipefail
           ./bench/run.sh \
             --shards 4 --records 10000 --repeats 2 \
             --min-speedup 1.25 \
