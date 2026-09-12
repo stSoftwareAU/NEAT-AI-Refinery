@@ -339,11 +339,13 @@ const NO_FULL_VOLUME: i32 = 90;
 /// Samples `source` onto a volume too small for the result, returning the
 /// binary's exit code and stderr.
 ///
-/// `None` has exactly two causes, and both are the host declining to offer a
-/// volume that can be filled: `unshare` is not installed, or the kernel
-/// refused the namespace or the mount. Every other fault — a failed spawn, a
-/// child killed by a signal — is raised rather than folded into a skip, so a
-/// harness that breaks fails the build instead of quietly asserting nothing.
+/// `None` is the host declining to offer a volume that can be filled:
+/// `unshare` is not installed, the kernel refused the user/mount namespace
+/// (`unshare` exits 1 writing `/proc/self/uid_map` — GitHub-hosted runners
+/// do this), or the script could not mount the tmpfs (exit 90). Every other
+/// fault — a failed spawn, a child killed by a signal — is raised rather
+/// than folded into a skip, so a harness that breaks fails the build instead
+/// of quietly asserting nothing.
 fn sample_onto_a_full_volume(directory: &TempDir, source: &Path) -> Option<(i32, String)> {
     let output = Command::new("unshare")
         .args(["--user", "--map-root-user", "--mount"])
@@ -365,16 +367,21 @@ fn sample_onto_a_full_volume(directory: &TempDir, source: &Path) -> Option<(i32,
         Err(error) => panic!("could not run the full-volume harness: {error}"),
     };
 
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let code = output.status.code().unwrap_or_else(|| {
-        panic!(
-            "the full-volume harness was killed rather than exiting: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
+        panic!("the full-volume harness was killed rather than exiting: {stderr}")
     });
     if code == NO_FULL_VOLUME {
         return None;
     }
-    Some((code, String::from_utf8_lossy(&output.stderr).into_owned()))
+    // `unshare` itself failed before bash ran, so the script never reached
+    // the exit-90 mount refusal. Its own diagnostics start with `unshare:`;
+    // the binary under test prefixes `neat_ai_refinery:`. Folding the latter
+    // into a skip would hide a real exit-1 regression.
+    if stderr.contains("unshare:") && !stderr.contains("neat_ai_refinery:") {
+        return None;
+    }
+    Some((code, stderr))
 }
 
 #[test]

@@ -702,6 +702,13 @@ Before raising a PR, run the full local gate — it mirrors CI:
 `actionlint` are used when installed and skipped with a notice otherwise
 (CI always runs them).
 
+Fleet hosts do not run `cargo build` on every sample.
+[`scripts/runlib.sh`](./scripts/runlib.sh) (Issue #54) installs
+`~/.cargo/bin/neat_ai_refinery` and `.neat_ai_refinery.version`, prints that
+path on stdout, and removes `target/` after a successful install. A second
+run on the same crate version prints `[neat-ai-refinery] already installed
+v<x>` and runs no cargo command. It builds `--bin neat_ai_refinery` only.
+
 The parity harness is separate because it needs Deno:
 
 ```bash
@@ -729,7 +736,7 @@ PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
 flowchart LR
     V[validation<br/>required files, cargo metadata] --> Q[quality<br/>cargo-deny, fmt, clippy, build, test, doc]
     V --> S[security<br/>rustsec/audit-check]
-    SH[shell-checks<br/>bash -n, shellcheck]
+    SH[shell-checks<br/>bash -n, shellcheck, runlib]
     Q --> R[ci-required]
     S --> R
     SH --> R

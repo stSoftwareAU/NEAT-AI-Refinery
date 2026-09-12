@@ -34,6 +34,9 @@ if [[ "$SHELLCHECK_FAILED" -ne 0 ]]; then
 fi
 echo "shellcheck: all scripts passed"
 
+echo "Checking scripts/runlib.sh already-installed contract (Issue #54)..."
+./scripts/test-runlib.sh
+
 if command -v markdownlint-cli2 &>/dev/null; then
   echo "Running markdownlint-cli2..."
   markdownlint-cli2
