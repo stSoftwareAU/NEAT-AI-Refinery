@@ -59,6 +59,7 @@ jobs:
             "CONTRIBUTING.md"
             "SECURITY.md"
             "quality.sh"
+            "scripts/runlib.sh"
             "deny.toml"
             "rust-toolchain.toml"
             "refinery/src/main.rs"
@@ -181,6 +182,9 @@ jobs:
             exit 0
           fi
           shellcheck --severity=warning "${scripts[@]}"
+
+      - name: Check scripts/runlib.sh already-installed contract
+        run: ./scripts/test-runlib.sh
 
   ci-required:
     name: CI Required Checks
