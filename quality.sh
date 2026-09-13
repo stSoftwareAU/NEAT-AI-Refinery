@@ -37,6 +37,9 @@ echo "shellcheck: all scripts passed"
 echo "Checking scripts/runlib.sh already-installed contract (Issue #54)..."
 ./scripts/test-runlib.sh
 
+echo "Checking scripts/auto-version.sh bump and downgrade contract (Issue #53)..."
+./scripts/test-auto-version.sh
+
 if command -v markdownlint-cli2 &>/dev/null; then
   echo "Running markdownlint-cli2..."
   markdownlint-cli2
