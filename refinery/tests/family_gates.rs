@@ -101,12 +101,118 @@ fn version_increment_covers_milestone_branches() {
     );
 }
 
+/// The same-repo guard belongs on the push, not on the job: a fork PR cannot
+/// receive a pushed commit, but the checks that need no write access — the
+/// downgrade check, and the byte-for-byte comparison against core — must still
+/// run for it. Guarding the whole job turned both into a skip, and `ci-required`
+/// scores a skip as OK.
 #[test]
-fn version_increment_skips_fork_pull_requests() {
+fn only_the_push_is_guarded_to_this_repository() {
+    let guard = "github.event.pull_request.head.repo.full_name == github.repository";
+
+    let bump = job_block(&workflow("version-increment.yml"), "version-increment");
+    let (bump_header, bump_steps) = bump
+        .split_once("    steps:")
+        .expect("the bump job declares steps");
+    assert!(
+        !bump_header.contains(guard),
+        "the bump job must not be skipped wholesale on a fork — the downgrade check needs no \
+         write access"
+    );
+    assert!(
+        bump_steps.contains(&format!("        if: {guard}")),
+        "the bump's push step must be guarded to this repository"
+    );
+
+    let sync = job_block(&workflow("ci.yml"), "family-sync");
+    let (sync_header, sync_steps) = sync
+        .split_once("    steps:")
+        .expect("the family-sync job declares steps");
+    assert!(
+        !sync_header.contains(guard),
+        "family-sync must not be skipped wholesale on a fork — the comparison needs no write access"
+    );
+    assert!(
+        sync_steps.contains(guard),
+        "family-sync's push step must be guarded to this repository"
+    );
+}
+
+/// Drift is a failure even once it has been corrected. The refreshed copy is
+/// pushed rather than gated — `shell-checks` ran against the bytes the PR
+/// arrived with, and a commit pushed with the default token starts no run of
+/// its own — so a green job here would report unlinted content as checked.
+#[test]
+fn family_sync_fails_the_run_when_the_copy_had_drifted() {
+    let block = job_block(&workflow("ci.yml"), "family-sync");
+    let (_, after_compare) = block
+        .split_once("Fail the run when the copy had drifted")
+        .expect("family-sync must carry a step that fails on drift");
+    assert!(
+        after_compare.contains("if: steps.compare.outputs.drifted == 'true'"),
+        "the failing step must be conditioned on drift"
+    );
+    assert!(
+        after_compare.contains("exit 1"),
+        "the failing step must exit non-zero, or drift passes silently"
+    );
+}
+
+/// The runner masks the secret, not its base64, so an encoded credential that
+/// is never `::add-mask::`-ed survives any later echo or `set -x` in the log.
+/// `base64 -w0` is GNU-only besides, and this repository runs macOS jobs.
+#[test]
+fn the_push_credential_is_masked_and_encoded_portably() {
+    for (name, job) in [
+        ("ci.yml", "family-sync"),
+        ("version-increment.yml", "version-increment"),
+    ] {
+        let block = job_block(&workflow(name), job);
+        assert!(
+            block.contains("echo \"::add-mask::${credential}\""),
+            "{name}:{job} must mask the encoded credential"
+        );
+        assert!(
+            block.contains("base64 | tr -d"),
+            "{name}:{job} must encode with `base64 | tr -d`"
+        );
+        // The comment above the command names `base64 -w0` to explain why it
+        // is not used, so only executable lines are searched for it.
+        let gnu_only = block
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .any(|line| line.contains("base64 -w0"));
+        assert!(
+            !gnu_only,
+            "{name}:{job} runs `base64 -w0`, which is GNU-only — this repository runs macOS jobs"
+        );
+    }
+}
+
+/// The bump rewrites `Cargo.lock` with awk and nothing downstream reads the
+/// lockfile before the commit merges, so the workflow confirms the two agree.
+#[test]
+fn the_bump_verifies_the_lockfile_against_the_manifest() {
     let block = job_block(&workflow("version-increment.yml"), "version-increment");
     assert!(
-        block.contains("github.event.pull_request.head.repo.full_name == github.repository"),
-        "the bump job must guard on the PR coming from this repository — it cannot push to a fork"
+        block.contains("if [ \"$manifest_version\" != \"$lock_version\" ]; then"),
+        "the bump must compare the rewritten Cargo.lock against refinery/Cargo.toml"
+    );
+}
+
+/// On a fork PR `origin` is the fork, whose copy of the base branch may be
+/// stale or missing entirely — comparing against that is worse than not
+/// comparing at all.
+#[test]
+fn the_base_version_is_read_from_this_repository() {
+    let block = job_block(&workflow("version-increment.yml"), "version-increment");
+    assert!(
+        block.contains("git fetch --no-tags \"https://github.com/${GITHUB_REPOSITORY}.git\""),
+        "the base branch must be fetched from this repository, not from the PR's origin"
+    );
+    assert!(
+        block.contains("base/${BASE_REF}:refinery/Cargo.toml"),
+        "the base manifest must be read from the ref fetched above"
     );
 }
 

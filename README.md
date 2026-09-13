@@ -717,9 +717,16 @@ That file is **not** Refinery's to edit. It is copied byte-for-byte from
 [NEAT-AI-core](https://github.com/stSoftwareAU/NEAT-AI-core) `Develop`
 (core #680), which is where every NEAT-AI Rust sibling takes it from —
 behaviour changes are made there and re-copied outward. CI holds the copy
-honest: the `family-sync` job fetches core's version on every PR and, when the
-two differ, commits the refresh onto the PR branch. A downstream edit is
-therefore reverted by the next PR, not silently forked.
+honest: the `family-sync` job fetches core's version on every PR, commits the
+refresh onto the PR branch when the two differ, and then fails the run. The
+failure is the point — the refreshed bytes were pushed, not gated, so the
+re-run is what puts them through `shell-checks` and
+`scripts/test-runlib.sh`. A downstream edit is therefore reverted by the next
+PR, not silently forked.
+
+It needs `cargo`, `rustc` and `jq` on the host — `jq` is what reads
+`cargo metadata` — and exits non-zero naming the missing one rather than
+guessing. It never installs a toolchain and never edits `RUSTFLAGS`.
 
 Because `refinery/Cargo.toml` declares an explicit `[[bin]]` table — it is what
 names the binary `neat_ai_refinery` rather than `neat-ai-refinery` — the
@@ -766,8 +773,9 @@ flowchart LR
 
 The `family-sync` job fails the PR when the canonical copy cannot be fetched —
 a fetch that quietly produced nothing would leave a stale `scripts/runlib.sh`
-looking freshly verified. Fork PRs skip it, because it cannot push to a fork's
-branch, and a skipped job counts as OK in `ci-required`.
+looking freshly verified — and again when it found drift, whether or not it
+managed to correct it. Fork PRs are compared like any other; only the push
+back is skipped, since a fork's branch cannot be written to.
 
 Standalone gates run on PRs against every base branch, so work that bypasses
 the full CI graph is still covered:

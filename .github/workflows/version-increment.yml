@@ -42,10 +42,9 @@ jobs:
     name: Auto-increment Crate Version
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Fork PRs are skipped: this workflow cannot push to a fork's branch, and a
-    # skipped job counts as OK in the aggregated gate. The bump then rides the
-    # maintainer's own follow-up branch.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # The version comparison needs no write access, so it runs for fork PRs
+    # too: only the push back is guarded. A fork cannot receive the bump, but a
+    # *downgrade* on a fork branch still fails here rather than sailing through.
     permissions:
       contents: write
 
@@ -53,6 +52,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           # The push token is never persisted into .git/config, where any later
@@ -64,12 +64,16 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          # Fail loud when the base cannot be resolved: a swallowed fetch would
-          # leave the comparison reading against nothing and look like a pass.
-          git fetch --no-tags origin \
-            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          if git cat-file -e "origin/${BASE_REF}:refinery/Cargo.toml" 2>/dev/null; then
-            git show "origin/${BASE_REF}:refinery/Cargo.toml" \
+          # The base is read from *this* repository, never from `origin`: on a
+          # fork PR origin is the fork, whose copy of the base branch may be
+          # stale or absent, and comparing against that is worse than not
+          # comparing at all. Fail loud when the fetch fails — a swallowed one
+          # would leave the comparison reading against nothing and look like a
+          # pass.
+          git fetch --no-tags "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "+refs/heads/${BASE_REF}:refs/remotes/base/${BASE_REF}"
+          if git cat-file -e "base/${BASE_REF}:refinery/Cargo.toml" 2>/dev/null; then
+            git show "base/${BASE_REF}:refinery/Cargo.toml" \
               >"${RUNNER_TEMP}/base-Cargo.toml"
             base="$(./scripts/auto-version.sh --print "${RUNNER_TEMP}/base-Cargo.toml")"
           else
@@ -78,25 +82,64 @@ jobs:
           fi
           ./scripts/auto-version.sh refinery/Cargo.toml "$base" Cargo.lock
 
+          # The bump rewrites Cargo.lock with awk, and nothing downstream reads
+          # the lockfile before this commit merges, so confirm the two agree
+          # here rather than discovering a corrupted lockfile on a fleet host.
+          manifest_version="$(./scripts/auto-version.sh --print refinery/Cargo.toml)"
+          lock_version="$(awk '
+            /^\[\[package\]\]/ { in_pkg = 0 }
+            $0 == "name = \"neat-ai-refinery\"" { in_pkg = 1; next }
+            in_pkg && /^version = / { sub(/^version = "/, ""); sub(/"$/, ""); print; exit }
+          ' Cargo.lock)"
+          if [ "$manifest_version" != "$lock_version" ]; then
+            echo "Cargo.lock records neat-ai-refinery ${lock_version:-nothing}, but refinery/Cargo.toml says ${manifest_version}" >&2
+            exit 1
+          fi
+          echo "OK   refinery/Cargo.toml and Cargo.lock both record ${manifest_version}"
+
       - name: Commit and push the bump
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PUSH_TOKEN: ${{ secrets.ACTIONS_PUSH || secrets.GITHUB_TOKEN }}
+          HAS_PUSH_PAT: ${{ secrets.ACTIONS_PUSH != '' }}
         run: |
           set -euo pipefail
           if git diff --quiet -- refinery/Cargo.toml Cargo.lock; then
             echo "Version is already ahead of the base branch — nothing to commit"
             exit 0
           fi
+          # Which token pushed decides whether the new commit re-runs CI, so
+          # say it rather than leaving the fallback silent.
+          if [ "$HAS_PUSH_PAT" = "true" ]; then
+            echo "Pushing with ACTIONS_PUSH — the bump commit will start its own CI run"
+          else
+            echo "Pushing with GITHUB_TOKEN — the bump commit starts no CI run; re-run CI before merging"
+          fi
           version="$(./scripts/auto-version.sh --print refinery/Cargo.toml)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add refinery/Cargo.toml Cargo.lock
           git commit -m "🪒 auto-increment crate version to ${version}"
-          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          # `base64 | tr -d '\n'` rather than GNU-only `base64 -w0`, and the
+          # encoded credential is masked: the runner's masker knows the secret,
+          # not its base64, so an unmasked value would survive any later echo.
+          credential="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${credential}"
           # The family-sync job pushes to this same branch, so rebase onto
           # whatever landed while this job ran rather than clobbering it.
           git fetch --no-tags origin "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
           git rebase "origin/${HEAD_REF}"
-          git -c http.https://github.com/.extraheader="$auth_header" \
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${credential}" \
             push origin "HEAD:${HEAD_REF}"
+
+      - name: Report a bump that cannot be pushed to a fork
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- refinery/Cargo.toml Cargo.lock; then
+            echo "OK   the version is already ahead of the base branch — no bump needed"
+            exit 0
+          fi
+          version="$(./scripts/auto-version.sh --print refinery/Cargo.toml)"
+          echo "::notice::This PR comes from a fork, so the bump to ${version} cannot be pushed to its branch — a maintainer must land it."

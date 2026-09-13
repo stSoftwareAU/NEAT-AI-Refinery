@@ -39,12 +39,15 @@ version changes, so a PR that lands source at an unchanged version ships
 nothing. `version-increment.yml` bumps the patch for you on any PR touching
 `refinery/src/**`, `refinery/Cargo.toml` or `Cargo.lock`; bumping it yourself
 is fine, and going *backwards* fails the job. `scripts/auto-version.sh` is the
-script behind it, copied unchanged from NEAT-AI-Ockham —
-`scripts/test-auto-version.sh` is its gate.
+script behind it, taken verbatim from NEAT-AI-Ockham — including its header,
+which still cites Ockham's own issue numbers. No job compares it against
+Ockham, so unlike `scripts/runlib.sh` that copy is a point-in-time one;
+`scripts/test-auto-version.sh` is what holds its behaviour.
 
 `scripts/runlib.sh` is copied byte-for-byte from NEAT-AI-core `Develop` and is
-never edited here. Behaviour changes go to core; the `family-sync` job pushes
-the refreshed copy onto your PR branch when the two differ.
+never edited here, and it needs `cargo`, `rustc` and `jq` on the host.
+Behaviour changes go to core; the `family-sync` job pushes the refreshed copy
+onto your PR branch when the two differ.
 
 ## Workflow changes
 

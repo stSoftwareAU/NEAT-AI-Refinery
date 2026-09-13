@@ -194,10 +194,10 @@ jobs:
     name: Family Sync (scripts/runlib.sh)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Fork PRs are skipped: this job cannot push to a fork's branch, and a
-    # skipped job counts as OK in `ci-required`. The refresh then rides the
-    # maintainer's own follow-up branch.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # The comparison itself needs no write access, so it runs for fork PRs too:
+    # only the push back is guarded. A fork that edits the canonical copy is
+    # still caught — it just has to be corrected by hand.
+    if: github.event_name == 'pull_request'
     permissions:
       contents: write
 
@@ -205,6 +205,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           # The push token is never persisted into .git/config, where any later
@@ -243,24 +244,57 @@ jobs:
           echo "drifted=true" >>"$GITHUB_OUTPUT"
 
       - name: Commit and push the refreshed copy
-        if: steps.compare.outputs.drifted == 'true'
+        if: >-
+          steps.compare.outputs.drifted == 'true'
+          && github.event.pull_request.head.repo.full_name == github.repository
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PUSH_TOKEN: ${{ secrets.ACTIONS_PUSH || secrets.GITHUB_TOKEN }}
+          HAS_PUSH_PAT: ${{ secrets.ACTIONS_PUSH != '' }}
         run: |
           set -euo pipefail
+          # Which token pushed decides whether the new commit re-runs CI, so
+          # say it rather than leaving the fallback silent.
+          if [ "$HAS_PUSH_PAT" = "true" ]; then
+            echo "Pushing with ACTIONS_PUSH — the refreshed commit will start its own CI run"
+          else
+            echo "Pushing with GITHUB_TOKEN — the refreshed commit starts no CI run; re-run this workflow"
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/runlib.sh
           git commit -m "🪒 sync scripts/runlib.sh from NEAT-AI-core Develop"
-          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          # `base64 | tr -d '\n'` rather than GNU-only `base64 -w0`, and the
+          # encoded credential is masked: the runner's masker knows the secret,
+          # not its base64, so an unmasked value would survive any later echo.
+          credential="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${credential}"
           # The version-increment workflow pushes to this same branch, so
           # rebase onto whatever landed while this job ran rather than
           # clobbering it.
           git fetch --no-tags origin "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
           git rebase "origin/${HEAD_REF}"
-          git -c http.https://github.com/.extraheader="$auth_header" \
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${credential}" \
             push origin "HEAD:${HEAD_REF}"
+
+      # Drift is a failure even once it has been corrected. The refreshed copy
+      # is pushed, not gated: `shell-checks` ran against the bytes this PR
+      # arrived with, and with the default token the new commit starts no run
+      # of its own. Passing here would report unlinted, untested content as
+      # checked — so the run goes red and the re-run gates the real bytes.
+      - name: Fail the run when the copy had drifted
+        if: steps.compare.outputs.drifted == 'true'
+        run: |
+          set -euo pipefail
+          echo "scripts/runlib.sh had drifted from NEAT-AI-core Develop." >&2
+          if [ "${HEAD_REPO}" = "${GITHUB_REPOSITORY}" ]; then
+            echo "The refreshed copy has been pushed onto this branch — re-run CI so the canonical bytes are linted and contract-tested." >&2
+          else
+            echo "This PR comes from a fork, so the refresh cannot be pushed — copy scripts/runlib.sh from NEAT-AI-core Develop by hand." >&2
+          fi
+          exit 1
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
 
   ci-required:
     name: CI Required Checks
