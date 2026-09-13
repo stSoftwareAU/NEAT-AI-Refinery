@@ -32,6 +32,20 @@ dependency cadence — an actively-exploited advisory — still runs every check
 it is written down in
 [`docs/incident-response.md`](docs/incident-response.md).
 
+## Crate version and `scripts/runlib.sh`
+
+Fleet hosts rebuild `neat_ai_refinery` only when `refinery/Cargo.toml`'s
+version changes, so a PR that lands source at an unchanged version ships
+nothing. `version-increment.yml` bumps the patch for you on any PR touching
+`refinery/src/**`, `refinery/Cargo.toml` or `Cargo.lock`; bumping it yourself
+is fine, and going *backwards* fails the job. `scripts/auto-version.sh` is the
+script behind it, copied unchanged from NEAT-AI-Ockham —
+`scripts/test-auto-version.sh` is its gate.
+
+`scripts/runlib.sh` is copied byte-for-byte from NEAT-AI-core `Develop` and is
+never edited here. Behaviour changes go to core; the `family-sync` job pushes
+the refreshed copy onto your PR branch when the two differ.
+
 ## Workflow changes
 
 Pin every third-party action to a 40-character commit SHA with a trailing

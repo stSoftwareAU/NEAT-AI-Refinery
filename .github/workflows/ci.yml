@@ -6,7 +6,8 @@
 #   validation ──┬── quality ───────────┐
 #                └── security ──────────┤
 #                                       ├──► ci-required  (aggregator)
-#   shell-checks ────────────────────────┘
+#   shell-checks ────────────────────────┤
+#   family-sync  ────────────────────────┘
 #
 # Refinery has no NEAT-AI-core path dependency, so no sibling checkout step
 # appears here — the workspace resolves from crates.io alone.
@@ -186,9 +187,84 @@ jobs:
       - name: Check scripts/runlib.sh already-installed contract
         run: ./scripts/test-runlib.sh
 
+      - name: Check scripts/auto-version.sh bump and downgrade contract
+        run: ./scripts/test-auto-version.sh
+
+  family-sync:
+    name: Family Sync (scripts/runlib.sh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Fork PRs are skipped: this job cannot push to a fork's branch, and a
+    # skipped job counts as OK in `ci-required`. The refresh then rides the
+    # maintainer's own follow-up branch.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          # The push token is never persisted into .git/config, where any later
+          # build script could read it; it is supplied per command instead.
+          persist-credentials: false
+
+      - name: Fetch the canonical scripts/runlib.sh from NEAT-AI-core
+        env:
+          CANONICAL_URL: https://raw.githubusercontent.com/stSoftwareAU/NEAT-AI-core/Develop/scripts/runlib.sh
+        run: |
+          set -euo pipefail
+          # `--fail` is what makes a fetch error an error: without it curl
+          # exits 0 having written a 404 body, and that body would be committed
+          # over the canonical copy as though it were the real thing.
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 5 --max-time 60 \
+            --output "${RUNNER_TEMP}/runlib.sh" "$CANONICAL_URL"
+          if [ ! -s "${RUNNER_TEMP}/runlib.sh" ]; then
+            echo "Fetched an empty scripts/runlib.sh from ${CANONICAL_URL}" >&2
+            exit 1
+          fi
+
+      - name: Refresh the copy when it has drifted
+        id: compare
+        run: |
+          set -euo pipefail
+          if cmp -s "${RUNNER_TEMP}/runlib.sh" scripts/runlib.sh; then
+            echo "OK   scripts/runlib.sh is byte-identical to NEAT-AI-core Develop"
+            echo "drifted=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::scripts/runlib.sh has drifted from NEAT-AI-core Develop — refreshing it"
+          diff -u scripts/runlib.sh "${RUNNER_TEMP}/runlib.sh" || true
+          cp "${RUNNER_TEMP}/runlib.sh" scripts/runlib.sh
+          chmod +x scripts/runlib.sh
+          echo "drifted=true" >>"$GITHUB_OUTPUT"
+
+      - name: Commit and push the refreshed copy
+        if: steps.compare.outputs.drifted == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PUSH_TOKEN: ${{ secrets.ACTIONS_PUSH || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/runlib.sh
+          git commit -m "🪒 sync scripts/runlib.sh from NEAT-AI-core Develop"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          # The version-increment workflow pushes to this same branch, so
+          # rebase onto whatever landed while this job ran rather than
+          # clobbering it.
+          git fetch --no-tags origin "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+          git rebase "origin/${HEAD_REF}"
+          git -c http.https://github.com/.extraheader="$auth_header" \
+            push origin "HEAD:${HEAD_REF}"
+
   ci-required:
     name: CI Required Checks
-    needs: [validation, quality, security, shell-checks]
+    needs: [validation, quality, security, shell-checks, family-sync]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -199,6 +275,7 @@ jobs:
           QUALITY_RESULT: ${{ needs.quality.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           SHELL_CHECKS_RESULT: ${{ needs.shell-checks.result }}
+          FAMILY_SYNC_RESULT: ${{ needs.family-sync.result }}
         run: |
           set -euo pipefail
           fail=0
@@ -215,6 +292,7 @@ jobs:
           check "quality"      "$QUALITY_RESULT"
           check "security"     "$SECURITY_RESULT"
           check "shell-checks" "$SHELL_CHECKS_RESULT"
+          check "family-sync"  "$FAMILY_SYNC_RESULT"
           if [[ "$fail" -ne 0 ]]; then
             echo "One or more gating jobs did not succeed — blocking merge." >&2
             exit 1

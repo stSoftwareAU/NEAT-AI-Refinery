@@ -703,11 +703,31 @@ Before raising a PR, run the full local gate — it mirrors CI:
 (CI always runs them).
 
 Fleet hosts do not run `cargo build` on every sample.
-[`scripts/runlib.sh`](./scripts/runlib.sh) (Issue #54) installs
-`~/.cargo/bin/neat_ai_refinery` and `.neat_ai_refinery.version`, prints that
-path on stdout, and removes `target/` after a successful install. A second
-run on the same crate version prints `[neat-ai-refinery] already installed
-v<x>` and runs no cargo command. It builds `--bin neat_ai_refinery` only.
+[`scripts/runlib.sh`](./scripts/runlib.sh) installs
+`~/.cargo/bin/neat_ai_refinery`, stamps it with
+`~/.cargo/bin/.neat-ai-refinery.version` — the crate semver, written last —
+prints the installed path on stdout, and removes `target/` after a successful
+install. A second run at the same crate version prints
+`[neat-ai-refinery] already installed v<x>` and compiles nothing. A failed
+install keeps `target/` and leaves the previously installed binary and its
+stamp untouched. Delete the stamp to force a rebuild; there is no force flag.
+
+That file is **not** Refinery's to edit. It is copied byte-for-byte from
+`scripts/runlib.sh` on
+[NEAT-AI-core](https://github.com/stSoftwareAU/NEAT-AI-core) `Develop`
+(core #680), which is where every NEAT-AI Rust sibling takes it from —
+behaviour changes are made there and re-copied outward. CI holds the copy
+honest: the `family-sync` job fetches core's version on every PR and, when the
+two differ, commits the refresh onto the PR branch. A downstream edit is
+therefore reverted by the next PR, not silently forked.
+
+Because `refinery/Cargo.toml` declares an explicit `[[bin]]` table — it is what
+names the binary `neat_ai_refinery` rather than `neat-ai-refinery` — the
+already-installed check runs one `cargo metadata` call before it reports. That
+reads the target shape from cargo rather than guessing it; nothing is compiled.
+`scripts/test-runlib.sh` asserts the whole contract against fixture checkouts
+with a `cargo` shim, so "compiled nothing" is read off a log of every
+invocation rather than assumed.
 
 The parity harness is separate because it needs Deno:
 
@@ -736,11 +756,18 @@ PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
 flowchart LR
     V[validation<br/>required files, cargo metadata] --> Q[quality<br/>cargo-deny, fmt, clippy, build, test, doc]
     V --> S[security<br/>rustsec/audit-check]
-    SH[shell-checks<br/>bash -n, shellcheck, runlib]
+    SH[shell-checks<br/>bash -n, shellcheck, runlib, auto-version]
+    FS[family-sync<br/>refresh scripts/runlib.sh from NEAT-AI-core]
     Q --> R[ci-required]
     S --> R
     SH --> R
+    FS --> R
 ```
+
+The `family-sync` job fails the PR when the canonical copy cannot be fetched —
+a fetch that quietly produced nothing would leave a stale `scripts/runlib.sh`
+looking freshly verified. Fork PRs skip it, because it cannot push to a fork's
+branch, and a skipped job counts as OK in `ci-required`.
 
 Standalone gates run on PRs against every base branch, so work that bypasses
 the full CI graph is still covered:
@@ -759,6 +786,7 @@ the full CI graph is still covered:
 | `soak.yml` | the production soak on macOS and Linux |
 | `benchmark.yml` | throughput, peak RSS and output size on macOS and Linux |
 | `cargo-upgrade.yml` | weekly dependency-refresh PR |
+| `version-increment.yml` | auto-bumps `refinery/Cargo.toml`'s patch version when a PR changes `refinery/src/**`, `refinery/Cargo.toml` or `Cargo.lock`, and fails on a version below the base branch |
 
 Every third-party `uses:` reference is pinned to a 40-character commit SHA with
 a trailing `# <version>` comment, and container images are pinned by `sha256:`

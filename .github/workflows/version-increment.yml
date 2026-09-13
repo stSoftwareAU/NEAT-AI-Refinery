@@ -1,0 +1,102 @@
+# Auto-increment refinery/Cargo.toml's patch version when a PR changes the
+# crate (Issue #53).
+#
+# Unattended fleet hosts key their rebuild off the crate version:
+# `scripts/runlib.sh` installs `~/.cargo/bin/neat_ai_refinery`, stamps it with
+# the crate semver, and runs no build while that stamp matches. A PR that lands
+# code at an unchanged version therefore ships nothing — the hosts keep running
+# the stale binary. This bumps the patch whether or not the author remembered
+# to, and fails loud on a version *below* the base branch: a downgrade reuses a
+# version the hosts have already installed, so the new binary never lands.
+#
+# The comparison base is the branch the PR actually targets, not a hardcoded
+# `Develop`: milestone sub-issue PRs merge into `milestone/<slug>` and would
+# otherwise read "already ahead" for every sub-issue after the first.
+name: Version Increment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - Develop
+      # Milestone sub-issue PRs target a shared `milestone/<slug>` branch and
+      # merge without ever touching Develop, so without this glob they ship
+      # source changes under an unchanged crate version.
+      - "milestone/**"
+    paths:
+      - "refinery/src/**"
+      - "refinery/Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/auto-version.sh"
+      - ".github/workflows/version-increment.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-increment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version-increment:
+    name: Auto-increment Crate Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Fork PRs are skipped: this workflow cannot push to a fork's branch, and a
+    # skipped job counts as OK in the aggregated gate. The bump then rides the
+    # maintainer's own follow-up branch.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          # The push token is never persisted into .git/config, where any later
+          # build script could read it; it is supplied per command instead.
+          persist-credentials: false
+
+      - name: Bump the patch version when this PR has not already
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          # Fail loud when the base cannot be resolved: a swallowed fetch would
+          # leave the comparison reading against nothing and look like a pass.
+          git fetch --no-tags origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if git cat-file -e "origin/${BASE_REF}:refinery/Cargo.toml" 2>/dev/null; then
+            git show "origin/${BASE_REF}:refinery/Cargo.toml" \
+              >"${RUNNER_TEMP}/base-Cargo.toml"
+            base="$(./scripts/auto-version.sh --print "${RUNNER_TEMP}/base-Cargo.toml")"
+          else
+            echo "Bootstrap: ${BASE_REF} carries no refinery/Cargo.toml — treating the base version as 0.0.0"
+            base="0.0.0"
+          fi
+          ./scripts/auto-version.sh refinery/Cargo.toml "$base" Cargo.lock
+
+      - name: Commit and push the bump
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PUSH_TOKEN: ${{ secrets.ACTIONS_PUSH || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- refinery/Cargo.toml Cargo.lock; then
+            echo "Version is already ahead of the base branch — nothing to commit"
+            exit 0
+          fi
+          version="$(./scripts/auto-version.sh --print refinery/Cargo.toml)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add refinery/Cargo.toml Cargo.lock
+          git commit -m "🪒 auto-increment crate version to ${version}"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          # The family-sync job pushes to this same branch, so rebase onto
+          # whatever landed while this job ran rather than clobbering it.
+          git fetch --no-tags origin "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+          git rebase "origin/${HEAD_REF}"
+          git -c http.https://github.com/.extraheader="$auth_header" \
+            push origin "HEAD:${HEAD_REF}"
