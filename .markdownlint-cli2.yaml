@@ -6,3 +6,6 @@ globs:
 # markdown under target/.
 ignores:
   - "target/**"
+  # `graft` repo-map nodes are generated locally (git-excluded) and quote
+  # source lines verbatim, so they are not ours to lint either.
+  - "graft/**"
