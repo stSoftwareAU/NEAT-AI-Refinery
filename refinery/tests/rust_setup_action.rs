@@ -75,15 +75,17 @@ fn cache_key_script() -> PathBuf {
 }
 
 /// Returns the 1-based line numbers where `yaml` names a Cargo cache directory
-/// as a cached path. Comments are ignored — prose about the cache is not a
-/// cache step.
+/// — the dependency sources or `target/` — as a cached path. Comments are
+/// ignored — prose about the cache is not a cache step.
 fn cargo_cache_paths(yaml: &str) -> Vec<usize> {
     yaml.lines()
         .enumerate()
         .filter(|(_, line)| {
             let line = line.trim();
             !line.starts_with('#')
-                && (line.starts_with("~/.cargo/registry") || line.starts_with("~/.cargo/git"))
+                && (line.starts_with("~/.cargo/registry")
+                    || line.starts_with("~/.cargo/git")
+                    || matches!(line, "target" | "target/"))
         })
         .map(|(index, _)| index + 1)
         .collect()
@@ -201,7 +203,7 @@ fn each_workflow_keeps_its_original_cache_key_suffix() {
 
 #[test]
 fn a_suffixed_key_falls_back_to_the_shared_cache() {
-    let output = run_cache_key(&["Linux", "bench", "deadbeef"]);
+    let output = run_cache_key(&["Linux", "bench", "deadbeef", "f00d"]);
     assert_eq!(
         output,
         concat!(
@@ -210,14 +212,19 @@ fn a_suffixed_key_falls_back_to_the_shared_cache() {
             "Linux-cargo-bench-\n",
             "Linux-cargo-\n",
             "RUST_SETUP_RESTORE_KEYS\n",
+            "target-key=Linux-rust-target-f00d-bench-deadbeef\n",
+            "target-restore-keys<<RUST_SETUP_TARGET_RESTORE_KEYS\n",
+            "Linux-rust-target-f00d-bench-\n",
+            "Linux-rust-target-f00d-\n",
+            "RUST_SETUP_TARGET_RESTORE_KEYS\n",
         ),
-        "the ladder must try this workflow's own cache before the shared one"
+        "both ladders must try this workflow's own cache before the shared one"
     );
 }
 
 #[test]
 fn an_empty_suffix_yields_the_shared_key() {
-    let output = run_cache_key(&["macOS", "", "cafe"]);
+    let output = run_cache_key(&["macOS", "", "cafe", "beef"]);
     assert_eq!(
         output,
         concat!(
@@ -225,14 +232,181 @@ fn an_empty_suffix_yields_the_shared_key() {
             "restore-keys<<RUST_SETUP_RESTORE_KEYS\n",
             "macOS-cargo-\n",
             "RUST_SETUP_RESTORE_KEYS\n",
+            "target-key=macOS-rust-target-beef-cafe\n",
+            "target-restore-keys<<RUST_SETUP_TARGET_RESTORE_KEYS\n",
+            "macOS-rust-target-beef-\n",
+            "RUST_SETUP_TARGET_RESTORE_KEYS\n",
         ),
-        "an empty suffix writes the shared cache the other workflows fall back to"
+        "an empty suffix writes the shared caches the other workflows fall back to"
+    );
+}
+
+/// Returns the value of the single-line output `name` in `output`.
+fn output_value<'a>(output: &'a str, name: &str) -> &'a str {
+    let prefix = format!("{name}=");
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix.as_str()))
+        .unwrap_or_else(|| panic!("cache-key.sh emitted no `{name}`:\n{output}"))
+}
+
+/// Returns the rungs of the multi-line output `name` in `output`.
+fn output_ladder(output: &str, name: &str) -> Vec<String> {
+    let opener = format!("{name}<<");
+    let mut lines = output.lines();
+    let delimiter = lines
+        .find_map(|line| line.strip_prefix(opener.as_str()))
+        .unwrap_or_else(|| panic!("cache-key.sh emitted no `{name}` ladder:\n{output}"));
+    lines
+        .take_while(|line| *line != delimiter)
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_toolchain_change_never_restores_a_stale_target_cache() {
+    // `target/` built by one rustc is dead weight to the next, so a toolchain
+    // bump must start a fresh target cache rather than fall back to the old
+    // one. The dependency sources in `~/.cargo` do not depend on rustc, so
+    // their key must not move with it.
+    let before = run_cache_key(&["Linux", "bench", "lock", "rustc1"]);
+    let after = run_cache_key(&["Linux", "bench", "lock", "rustc2"]);
+
+    assert_eq!(output_value(&before, "key"), output_value(&after, "key"));
+    assert_ne!(
+        output_value(&before, "target-key"),
+        output_value(&after, "target-key")
+    );
+    let old_key = output_value(&before, "target-key");
+    for rung in output_ladder(&after, "target-restore-keys") {
+        assert!(
+            !old_key.starts_with(&rung),
+            "rung `{rung}` would restore the previous toolchain's target cache `{old_key}`"
+        );
+    }
+}
+
+#[test]
+fn a_lock_change_still_restores_the_target_cache() {
+    // Cargo rebuilds only what a Cargo.lock change touched, so the previous
+    // lock's target cache is still the warm start.
+    let before = run_cache_key(&["Linux", "", "lock1", "rustc"]);
+    let after = run_cache_key(&["Linux", "", "lock2", "rustc"]);
+    let old_key = output_value(&before, "target-key");
+
+    assert_ne!(old_key, output_value(&after, "target-key"));
+    assert!(
+        output_ladder(&after, "target-restore-keys")
+            .iter()
+            .any(|rung| old_key.starts_with(rung.as_str())),
+        "no rung restores the previous lock's target cache `{old_key}`"
     );
 }
 
 #[test]
+fn the_target_cache_never_shares_a_prefix_with_the_registry_cache() {
+    // A registry rung must never match a target entry, or the other way round.
+    let output = run_cache_key(&["Linux", "bench", "lock", "rustc"]);
+    let target_key = output_value(&output, "target-key");
+    let registry_key = output_value(&output, "key");
+    for rung in output_ladder(&output, "restore-keys") {
+        assert!(
+            !target_key.starts_with(&rung),
+            "{rung} matches {target_key}"
+        );
+    }
+    for rung in output_ladder(&output, "target-restore-keys") {
+        assert!(
+            !registry_key.starts_with(&rung),
+            "{rung} matches {registry_key}"
+        );
+    }
+}
+
+/// Returns the paths each `actions/cache` step in `yaml` caches, one list per
+/// step, read from its `path: |` block.
+fn cache_step_paths(yaml: &str) -> Vec<Vec<String>> {
+    let mut steps = Vec::new();
+    let mut lines = yaml.lines().peekable();
+    while let Some(line) = lines.next() {
+        if line.trim() != "path: |" {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let mut paths = Vec::new();
+        while let Some(next) = lines.peek() {
+            let next_indent = next.len() - next.trim_start().len();
+            if next.trim().is_empty() || next_indent <= indent {
+                break;
+            }
+            paths.push(next.trim().to_string());
+            lines.next();
+        }
+        steps.push(paths);
+    }
+    steps
+}
+
+#[test]
+fn the_composite_action_caches_target_under_its_own_key() {
+    let action = fs::read_to_string(repo_root().join(".github/actions/rust-setup/action.yml"))
+        .expect("the rust-setup composite action exists");
+
+    let caches = invocation_inputs(&action, "actions/cache");
+    let keys: Vec<&str> = caches
+        .iter()
+        .map(|inputs| inputs.get("key").map(String::as_str).unwrap_or(""))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "${{ steps.cache-keys.outputs.key }}",
+            "${{ steps.cache-keys.outputs.target-key }}",
+        ],
+        "the registry and target caches each need their own key"
+    );
+    assert_eq!(
+        caches[1].get("restore-keys").map(String::as_str),
+        Some("${{ steps.cache-keys.outputs.target-restore-keys }}")
+    );
+    assert_eq!(
+        cache_step_paths(&action),
+        [
+            vec!["~/.cargo/registry".to_string(), "~/.cargo/git".to_string()],
+            vec!["target".to_string()],
+        ],
+        "`target/` must be cached apart from the dependency sources"
+    );
+}
+
+#[test]
+fn cache_step_paths_reads_each_block() {
+    let yaml = concat!(
+        "        path: |\n",
+        "          ~/.cargo/registry\n",
+        "          ~/.cargo/git\n",
+        "        key: a\n",
+        "        path: |\n",
+        "          target\n",
+    );
+    assert_eq!(
+        cache_step_paths(yaml),
+        [
+            vec!["~/.cargo/registry".to_string(), "~/.cargo/git".to_string()],
+            vec!["target".to_string()],
+        ]
+    );
+    assert_eq!(cache_step_paths(""), Vec::<Vec<String>>::new());
+}
+
+#[test]
 fn a_missing_argument_fails_loudly() {
-    for args in [vec![], vec!["Linux"], vec!["Linux", "bench"]] {
+    for args in [
+        vec![],
+        vec!["Linux"],
+        vec!["Linux", "bench"],
+        vec!["Linux", "bench", "deadbeef"],
+    ] {
         let output = Command::new(cache_key_script())
             .args(&args)
             .output()
@@ -254,7 +428,7 @@ fn a_suffix_that_could_forge_the_output_is_rejected() {
     // key or close the heredoc must be refused rather than written out.
     for suffix in ["bench\nkey=evil", "a b", "x/y", "$(id)"] {
         let output = Command::new(cache_key_script())
-            .args(["Linux", suffix, "deadbeef"])
+            .args(["Linux", suffix, "deadbeef", "f00d"])
             .output()
             .expect("the cache-key script is executable");
         assert!(
@@ -265,8 +439,24 @@ fn a_suffix_that_could_forge_the_output_is_rejected() {
 }
 
 #[test]
+fn an_unsafe_or_empty_toolchain_hash_is_rejected() {
+    // The toolchain hash reaches `$GITHUB_OUTPUT` too, and an empty one — no
+    // `rust-toolchain.toml` matched — would silently drop rustc from the key.
+    for hash in ["", "a\nkey=evil", "$(id)"] {
+        let output = Command::new(cache_key_script())
+            .args(["Linux", "bench", "deadbeef", hash])
+            .output()
+            .expect("the cache-key script is executable");
+        assert!(
+            !output.status.success(),
+            "cache-key.sh accepted the toolchain hash {hash:?}"
+        );
+    }
+}
+
+#[test]
 fn a_dotted_suffix_is_accepted() {
-    let output = run_cache_key(&["Linux", "bench_v1.2-a", "abc"]);
+    let output = run_cache_key(&["Linux", "bench_v1.2-a", "abc", "def"]);
     assert!(
         output.starts_with("key=Linux-cargo-bench_v1.2-a-abc\n"),
         "unexpected key: {output}"
@@ -283,6 +473,13 @@ fn cargo_cache_paths_ignores_comments_and_prose() {
 
     let inlined = concat!("        path: |\n", "          ~/.cargo/registry\n");
     assert_eq!(cargo_cache_paths(inlined), vec![2]);
+
+    let target = concat!(
+        "        path: |\n",
+        "          target/\n",
+        "          target\n"
+    );
+    assert_eq!(cargo_cache_paths(target), vec![2, 3]);
 }
 
 #[test]
