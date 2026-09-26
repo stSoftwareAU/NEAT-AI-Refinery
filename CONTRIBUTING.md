@@ -49,6 +49,15 @@ never edited here, and it needs `cargo`, `rustc` and `jq` on the host.
 Behaviour changes go to core; the `family-sync` job pushes the refreshed copy
 onto your PR branch when the two differ.
 
+## Changelog
+
+Add a line to [`CHANGELOG.md`](CHANGELOG.md) under `## [Unreleased]` with
+any change a fleet operator would notice — a terse one is fine — citing the
+issue number. When a PR moves `refinery/Cargo.toml`'s version, turn
+`[Unreleased]` into `## [x.y.z] - YYYY-MM-DD` for that version and open a
+fresh, empty `[Unreleased]` above it. `refinery/tests/changelog.rs` keeps
+releases newest first, dated, and never ahead of the crate's version.
+
 ## Workflow changes
 
 Pin every third-party action to a 40-character commit SHA with a trailing
