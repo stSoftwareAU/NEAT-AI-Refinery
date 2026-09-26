@@ -1,3 +1,5 @@
+# Drop `--verbose` from the CI test step
+
 ## Summary
 
 Removed `--verbose` from the `quality` job's test step in `.github/workflows/ci.yml`. It now runs `cargo test --workspace --all-features -- --test-threads=2`, the same command as the local gate in `quality.sh`. A green PR no longer prints a line for every passing test. Failures still show in full, because `cargo test` prints failure detail without the flag. Closes #63.
