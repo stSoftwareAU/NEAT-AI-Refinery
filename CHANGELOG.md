@@ -19,6 +19,8 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
 ### Changed
 
 - The CI test step runs a quiet `cargo test`, matching `quality.sh` (#63).
+- `benchmark.yml`, `parity.yml` and `soak.yml` share the reusable
+  `_corpus-runner.yml` workflow; their checks now report as `<job> / Run` (#68).
 
 ## [0.1.3] - 2026-09-21
 

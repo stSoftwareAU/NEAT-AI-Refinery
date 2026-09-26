@@ -137,7 +137,8 @@ missing Deno fails rather than skips.
 Under a plain `cargo test`, the Deno-dependent tests skip with a notice when
 `deno` is not on `PATH` — that keeps `./quality.sh` usable on a machine without
 Deno. The enforcing gate is `.github/workflows/parity.yml`, which installs Deno
-and sets `REFINERY_PARITY_REQUIRED=1`; the harness cannot pass there by not
+through the shared `_corpus-runner.yml` workflow and runs `./parity/run.sh`, so
+`REFINERY_PARITY_REQUIRED=1` is set; the harness cannot pass there by not
 running.
 
 `parity/deno.json` pins NEAT-AI (`jsr:@stsoftware/neat-ai`) and
