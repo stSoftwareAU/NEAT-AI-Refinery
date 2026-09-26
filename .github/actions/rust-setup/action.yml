@@ -1,9 +1,10 @@
 name: Rust setup
 description: >-
-  Installs the pinned Rust toolchain and restores the Cargo cache — the setup
-  block every Rust workflow in this repository shares (Issue #43). Owning it
-  once means the toolchain pin and the cache-key strategy are changed in one
-  place rather than five.
+  Installs the pinned Rust toolchain and restores the Cargo cache — the
+  dependency sources and the `target/` build output — the setup block every
+  Rust workflow in this repository shares (Issues #43, #69). Owning it once
+  means the toolchain pin and the cache-key strategy are changed in one place
+  rather than five.
 
 # The `actions/checkout` step deliberately stays with the caller: the runner
 # reads a local action (`uses: ./…`) from the workspace, so the repository must
@@ -15,9 +16,10 @@ description: >-
 inputs:
   cache-key-suffix:
     description: >-
-      Keeps this workflow's Cargo cache distinct from its siblings'
-      (`bench`, `soak`, …). Empty uses the shared `<os>-cargo-<hash>` cache the
-      suffixed ladders fall back to.
+      Keeps this workflow's Cargo caches distinct from its siblings'
+      (`bench`, `soak`, …). Empty uses the shared `<os>-cargo-<hash>` and
+      `<os>-rust-target-<toolchain>-<hash>` caches the suffixed ladders fall
+      back to.
     required: false
     default: ""
   components:
@@ -39,10 +41,12 @@ runs:
       env:
         CACHE_KEY_SUFFIX: ${{ inputs.cache-key-suffix }}
         LOCK_HASH: ${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+        # Empty when no toolchain file matched — cache-key.sh then fails loudly.
+        TOOLCHAIN_HASH: ${{ hashFiles('rust-toolchain.toml', 'rust-toolchain') }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        "${ACTION_PATH}/cache-key.sh" "$RUNNER_OS" "$CACHE_KEY_SUFFIX" "$LOCK_HASH" >> "$GITHUB_OUTPUT"
+        "${ACTION_PATH}/cache-key.sh" "$RUNNER_OS" "$CACHE_KEY_SUFFIX" "$LOCK_HASH" "$TOOLCHAIN_HASH" >> "$GITHUB_OUTPUT"
 
     - name: Cache dependencies
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
@@ -52,3 +56,15 @@ runs:
           ~/.cargo/git
         key: ${{ steps.cache-keys.outputs.key }}
         restore-keys: ${{ steps.cache-keys.outputs.restore-keys }}
+
+    # Without this every job recompiles the crate and all its dependencies
+    # from scratch (Issue #69). Keyed on the toolchain as well as the lock, so a
+    # `rust-toolchain.toml` bump starts cold rather than restoring output the
+    # new rustc cannot reuse.
+    - name: Cache build output
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+      with:
+        path: |
+          target
+        key: ${{ steps.cache-keys.outputs.target-key }}
+        restore-keys: ${{ steps.cache-keys.outputs.target-restore-keys }}

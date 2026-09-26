@@ -832,9 +832,13 @@ projects — no workflow checks out a sibling repository.
 The five Rust workflows (`ci.yml`, `cargo-quality.yml`, `benchmark.yml`,
 `parity.yml`, `soak.yml`) share one setup step, the composite action
 `.github/actions/rust-setup`, which installs the pinned toolchain and restores
-the Cargo cache. Each caller passes a `cache-key-suffix` that keeps its cache
-distinct while still falling back to the shared `<os>-cargo-` cache `ci.yml`
-writes. The three corpus workflows reach it through the reusable workflow
+two caches: the dependency sources in `~/.cargo`, and the `target/` build output
+so a job does not recompile the crate and its dependencies from scratch. Each
+caller passes a `cache-key-suffix` that keeps its caches distinct while still
+falling back to the shared `<os>-cargo-` and `<os>-rust-target-` caches `ci.yml`
+writes. The target key also hashes `rust-toolchain.toml`, and its ladder never
+crosses toolchains, so a toolchain bump starts one cold build rather than
+restoring output the new `rustc` cannot reuse. The three corpus workflows reach it through the reusable workflow
 `_corpus-runner.yml`, which forwards their suffix:
 
 ```mermaid
@@ -846,7 +850,9 @@ flowchart LR
     SO["soak.yml<br/>soak"] --> CR
     CR --> A
     A --> T[dtolnay/rust-toolchain]
-    A --> K["cache-key.sh<br/>&lt;os&gt;-cargo-&lt;suffix&gt;-&lt;hash&gt;"] --> C[actions/cache]
+    A --> K["cache-key.sh"]
+    K -->|"&lt;os&gt;-cargo-&lt;suffix&gt;-&lt;lock&gt;"| C["actions/cache<br/>~/.cargo/registry, ~/.cargo/git"]
+    K -->|"&lt;os&gt;-rust-target-&lt;toolchain&gt;-&lt;suffix&gt;-&lt;lock&gt;"| TC["actions/cache<br/>target/"]
 ```
 
 `actions/checkout` stays in each caller of the action — the runner reads a
@@ -855,7 +861,7 @@ before `uses: ./.github/actions/rust-setup` resolves.
 `refinery/tests/rust_setup_action.rs` holds the arrangement in place: no
 workflow may inline a Cargo cache again, every caller must keep
 `persist-credentials: false`, and the cache-key script is executed for real so
-its key ladder is covered by `cargo test`.
+both key ladders are covered by `cargo test`.
 
 `_corpus-runner.yml` owns the whole block the corpus workflows used to
 copy-paste — checkout, Rust setup, Deno setup, the corpus script and the

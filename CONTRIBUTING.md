@@ -68,11 +68,12 @@ rewriting the digest. Mutable tags and tagless digests are both rejected by
 `refinery/tests/workflow_pins.rs`. See the "Continuous integration" section of
 `README.md` for the gate layout.
 
-A Rust workflow gets its toolchain and Cargo cache from the composite action
-`.github/actions/rust-setup` — change the pin or the cache strategy there, not
-in the workflow. Pass `cache-key-suffix` to keep a new workflow's cache
-distinct; leave it empty only for the job that writes the shared `<os>-cargo-`
-cache. `refinery/tests/rust_setup_action.rs` fails the build if a workflow
-inlines its own Cargo cache instead. A workflow that runs a corpus script
+A Rust workflow gets its toolchain and Cargo caches — `~/.cargo` and `target/`
+— from the composite action `.github/actions/rust-setup`; change the pin or the
+cache strategy there, not in the workflow. Pass `cache-key-suffix` to keep a new
+workflow's caches distinct; leave it empty only for the job that writes the
+shared `<os>-cargo-` and `<os>-rust-target-` caches.
+`refinery/tests/rust_setup_action.rs` fails the build if a workflow inlines its
+own Cargo or `target/` cache instead. A workflow that runs a corpus script
 (`benchmark.yml`, `parity.yml`, `soak.yml`) calls `_corpus-runner.yml` rather
 than repeating its setup; `refinery/tests/corpus_runner.rs` holds that line.
