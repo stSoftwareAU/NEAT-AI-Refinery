@@ -190,6 +190,9 @@ jobs:
       - name: Check scripts/auto-version.sh bump and downgrade contract
         run: ./scripts/test-auto-version.sh
 
+      - name: Check scripts/sbom-diff.sh new-component annotations
+        run: ./scripts/test-sbom-diff.sh
+
   family-sync:
     name: Family Sync (scripts/runlib.sh)
     runs-on: ubuntu-latest

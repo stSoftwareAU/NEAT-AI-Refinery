@@ -763,7 +763,7 @@ PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
 flowchart LR
     V[validation<br/>required files, cargo metadata] --> Q[quality<br/>cargo-deny, fmt, clippy, build, test, doc]
     V --> S[security<br/>rustsec/audit-check]
-    SH[shell-checks<br/>bash -n, shellcheck, runlib, auto-version]
+    SH[shell-checks<br/>bash -n, shellcheck, runlib, auto-version, sbom-diff]
     FS[family-sync<br/>refresh scripts/runlib.sh from NEAT-AI-core]
     Q --> R[ci-required]
     S --> R
@@ -787,7 +787,7 @@ the full CI graph is still covered:
 | `dependency-review.yml` | new dependencies: vulnerabilities and licences |
 | `gitleaks.yml` | secret scanning over the PR commit range |
 | `semgrep.yml` | SAST scanning |
-| `sbom.yml` | CycloneDX SBOM artefact |
+| `sbom.yml` | CycloneDX SBOM artefact; on a PR, annotates components new since the Develop baseline |
 | `actionlint.yml` | workflow YAML lint |
 | `markdown-lint.yml` | `markdownlint-cli2` |
 | `parity.yml` | sampler parity against GRQ and `evolveDir` consumption |
@@ -795,6 +795,27 @@ the full CI graph is still covered:
 | `benchmark.yml` | throughput, peak RSS and output size on macOS and Linux |
 | `cargo-upgrade.yml` | weekly dependency-refresh PR |
 | `version-increment.yml` | auto-bumps `refinery/Cargo.toml`'s patch version when a PR changes `refinery/src/**`, `refinery/Cargo.toml` or `Cargo.lock`, and fails on a version below the base branch |
+
+On a PR, `sbom.yml` downloads the SBOM the latest successful push run on
+`Develop` uploaded and diffs it against the fresh one with
+`scripts/sbom-diff.sh`. Components are compared by package URL without the
+version, so a version bump is not new. A new crate that `refinery/Cargo.toml`
+declares directly earns a notice; one it never asked for by name earns a
+warning annotation naming the `cargo tree -i` command that explains it. The
+diff annotates rather than fails, since a routine `cargo update` legitimately
+brings transitive crates, but a baseline that cannot be downloaded fails the
+step instead of passing as "nothing new":
+
+```mermaid
+flowchart LR
+    P[PR] --> G[cargo cyclonedx<br/>current SBOM]
+    D[latest push run<br/>on Develop] --> B[baseline SBOM<br/>artefact]
+    G --> X[scripts/sbom-diff.sh]
+    B --> X
+    M[refinery/Cargo.toml<br/>direct dependencies] --> X
+    X -->|direct| N[notice]
+    X -->|transitive| W[warning]
+```
 
 Every third-party `uses:` reference is pinned to a 40-character commit SHA with
 a trailing `# <version>` comment, and container images are pinned by `sha256:`
