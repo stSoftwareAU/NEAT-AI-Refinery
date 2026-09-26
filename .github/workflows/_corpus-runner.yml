@@ -1,0 +1,125 @@
+name: Corpus Runner
+
+# Shared job for the corpus gates (issue #68).
+#
+# `benchmark.yml`, `parity.yml` and `soak.yml` all check out, install Rust and
+# Deno, run one corpus script and, for two of them, upload its evidence. That
+# block lives here once so a change to it lands in all three together; each
+# caller passes only what differs. `refinery/tests/corpus_runner.rs` holds the
+# callers and this file to that split.
+#
+# A caller's workflow-level `env:` does not reach a called workflow, so the
+# Cargo settings the callers shared are set here instead.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label to run on.
+        type: string
+        default: ubuntu-latest
+      timeout-minutes:
+        description: Job timeout in minutes.
+        type: number
+        default: 30
+      cache-key-suffix:
+        description: Keeps this caller's Cargo cache distinct from its siblings'.
+        type: string
+        required: true
+      script:
+        description: Corpus script to run, e.g. `./bench/run.sh`.
+        type: string
+        required: true
+      args:
+        description: Space-separated arguments passed to the script.
+        type: string
+        default: ""
+      evidence-name:
+        description: >-
+          Evidence directory and artifact prefix. When set, the script is given
+          `--evidence` and the directory is uploaded; empty skips both.
+        type: string
+        default: ""
+      job-summary:
+        description: Append the evidence Markdown reports to the job summary.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "2"
+
+jobs:
+  run:
+    name: Run
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust and restore the Cargo cache
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key-suffix: ${{ inputs.cache-key-suffix }}
+
+      - name: Install Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed  # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Run the corpus script
+        env:
+          CORPUS_SCRIPT: ${{ inputs.script }}
+          CORPUS_ARGS: ${{ inputs.args }}
+          EVIDENCE_NAME: ${{ inputs.evidence-name }}
+        run: |
+          set -euo pipefail
+          # Inputs are data: refuse anything outside the shapes the callers use.
+          if [[ ! "$CORPUS_SCRIPT" =~ ^\./[A-Za-z0-9_-]+/run\.sh$ ]]; then
+            echo "::error::script must be ./<dir>/run.sh" >&2
+            exit 1
+          fi
+          if [[ ! "$CORPUS_ARGS" =~ ^[A-Za-z0-9\ ._-]*$ ]]; then
+            echo "::error::args may hold only letters, digits, spaces, '.', '_' and '-'" >&2
+            exit 1
+          fi
+          if [[ ! "$EVIDENCE_NAME" =~ ^[a-z0-9-]*$ ]]; then
+            echo "::error::evidence-name may hold only lower-case letters, digits and '-'" >&2
+            exit 1
+          fi
+          read -r -a args <<< "$CORPUS_ARGS"
+          if [ -n "$EVIDENCE_NAME" ]; then
+            args+=(--evidence "${RUNNER_TEMP}/${EVIDENCE_NAME}-evidence")
+          fi
+          "$CORPUS_SCRIPT" ${args[@]+"${args[@]}"} < /dev/null
+
+      - name: Publish the numbers to the job summary
+        if: always() && inputs.job-summary
+        env:
+          EVIDENCE_NAME: ${{ inputs.evidence-name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          reports=("${RUNNER_TEMP}/${EVIDENCE_NAME}-evidence"/*.md)
+          if [ ${#reports[@]} -eq 0 ]; then
+            echo "The ${EVIDENCE_NAME} run produced no report — see the step above." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cat "${reports[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the report
+        if: always() && inputs.evidence-name != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ inputs.evidence-name }}-${{ inputs.runs-on }}
+          path: ${{ runner.temp }}/${{ inputs.evidence-name }}-evidence
+          if-no-files-found: error

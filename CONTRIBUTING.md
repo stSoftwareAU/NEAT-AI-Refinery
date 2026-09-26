@@ -73,4 +73,6 @@ A Rust workflow gets its toolchain and Cargo cache from the composite action
 in the workflow. Pass `cache-key-suffix` to keep a new workflow's cache
 distinct; leave it empty only for the job that writes the shared `<os>-cargo-`
 cache. `refinery/tests/rust_setup_action.rs` fails the build if a workflow
-inlines its own Cargo cache instead.
+inlines its own Cargo cache instead. A workflow that runs a corpus script
+(`benchmark.yml`, `parity.yml`, `soak.yml`) calls `_corpus-runner.yml` rather
+than repeating its setup; `refinery/tests/corpus_runner.rs` holds that line.

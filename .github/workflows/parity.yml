@@ -8,9 +8,9 @@ name: Parity Harness
 # unchanged. This gates the GRQ cut-over, so it runs on PRs against any base
 # branch rather than only the ones `ci.yml` covers.
 #
-# `ci.yml` has no Deno, so the parity tests skip there; `REFINERY_PARITY_REQUIRED`
-# below turns a missing Deno into a failure, making this workflow the enforcing
-# gate rather than a second opinion.
+# `ci.yml` has no Deno, so the parity tests skip there; `parity/run.sh` sets
+# `REFINERY_PARITY_REQUIRED=1`, turning a missing Deno into a failure and making
+# this workflow the enforcing gate rather than a second opinion.
 
 on:
   pull_request:
@@ -24,32 +24,13 @@ concurrency:
   group: parity-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_BUILD_JOBS: "2"
-  REFINERY_PARITY_REQUIRED: "1"
-
 jobs:
   parity:
     name: Sampler Parity and evolveDir Consumption
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
-        with:
-          persist-credentials: false
-
-      - name: Install Rust and restore the Cargo cache
-        uses: ./.github/actions/rust-setup
-        with:
-          cache-key-suffix: parity
-
-      - name: Install Deno
-        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed  # v2.0.5
-        with:
-          deno-version: v2.x
-
-      - name: Run the golden parity harness
-        run: ./parity/run.sh < /dev/null
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_corpus-runner.yml
+    with:
+      timeout-minutes: 20
+      cache-key-suffix: parity
+      script: ./parity/run.sh

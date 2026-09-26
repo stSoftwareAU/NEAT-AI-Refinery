@@ -834,26 +834,38 @@ The five Rust workflows (`ci.yml`, `cargo-quality.yml`, `benchmark.yml`,
 `.github/actions/rust-setup`, which installs the pinned toolchain and restores
 the Cargo cache. Each caller passes a `cache-key-suffix` that keeps its cache
 distinct while still falling back to the shared `<os>-cargo-` cache `ci.yml`
-writes:
+writes. The three corpus workflows reach it through the reusable workflow
+`_corpus-runner.yml`, which forwards their suffix:
 
 ```mermaid
 flowchart LR
     CI["ci.yml<br/>(no suffix)"] --> A["./.github/actions/rust-setup"]
     CQ["cargo-quality.yml<br/>quality"] --> A
-    BM["benchmark.yml<br/>bench"] --> A
-    PA["parity.yml<br/>parity"] --> A
-    SO["soak.yml<br/>soak"] --> A
+    BM["benchmark.yml<br/>bench"] --> CR["_corpus-runner.yml"]
+    PA["parity.yml<br/>parity"] --> CR
+    SO["soak.yml<br/>soak"] --> CR
+    CR --> A
     A --> T[dtolnay/rust-toolchain]
     A --> K["cache-key.sh<br/>&lt;os&gt;-cargo-&lt;suffix&gt;-&lt;hash&gt;"] --> C[actions/cache]
 ```
 
-`actions/checkout` stays in each caller — the runner reads a local action from
-the workspace, so the repository must already be checked out before
-`uses: ./.github/actions/rust-setup` resolves.
+`actions/checkout` stays in each caller of the action — the runner reads a
+local action from the workspace, so the repository must already be checked out
+before `uses: ./.github/actions/rust-setup` resolves.
 `refinery/tests/rust_setup_action.rs` holds the arrangement in place: no
 workflow may inline a Cargo cache again, every caller must keep
 `persist-credentials: false`, and the cache-key script is executed for real so
 its key ladder is covered by `cargo test`.
+
+`_corpus-runner.yml` owns the whole block the corpus workflows used to
+copy-paste — checkout, Rust setup, Deno setup, the corpus script and the
+evidence upload. Each caller passes only what differs: its `script`, its
+`args`, its `cache-key-suffix`, its `evidence-name` (uploaded as
+`<evidence-name>-<os>`, failing when no evidence was written) and whether to
+print a `job-summary`. The runner allowlists the script path, arguments and
+evidence name before running anything, and its jobs report as
+`<caller job> / Run`. `refinery/tests/corpus_runner.rs` fails the build if a
+caller inlines a shared step again or passes another caller's inputs.
 
 ## Licence
 

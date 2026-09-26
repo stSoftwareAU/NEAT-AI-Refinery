@@ -19,20 +19,23 @@
 //! action calls is executed here for real so its key ladder is covered by
 //! `cargo test` rather than only by a live CI run.
 
-use std::collections::BTreeMap;
+mod support;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use support::workflow_yaml::invocation_inputs;
+
 /// The workflows that share the Rust setup block, and the cache-key suffix each
 /// one used before the extraction. The suffix keeps a workflow's cache distinct
 /// from its siblings', so preserving it preserves the cache hits.
-const RUST_WORKFLOWS: [(&str, &str); 5] = [
-    ("benchmark.yml", "bench"),
+/// The three corpus workflows reach it through `_corpus-runner.yml`, which
+/// forwards their suffix; `corpus_runner.rs` holds each caller to its own.
+const RUST_WORKFLOWS: [(&str, &str); 3] = [
+    ("_corpus-runner.yml", "${{ inputs.cache-key-suffix }}"),
     ("cargo-quality.yml", "quality"),
     ("ci.yml", ""),
-    ("parity.yml", "parity"),
-    ("soak.yml", "soak"),
 ];
 
 const RUST_SETUP_USES: &str = "./.github/actions/rust-setup";
@@ -71,11 +74,6 @@ fn cache_key_script() -> PathBuf {
     repo_root().join(".github/actions/rust-setup/cache-key.sh")
 }
 
-/// The indentation width of `line`, in spaces.
-fn indent_of(line: &str) -> usize {
-    line.len() - line.trim_start().len()
-}
-
 /// Returns the 1-based line numbers where `yaml` names a Cargo cache directory
 /// as a cached path. Comments are ignored — prose about the cache is not a
 /// cache step.
@@ -89,68 +87,6 @@ fn cargo_cache_paths(yaml: &str) -> Vec<usize> {
         })
         .map(|(index, _)| index + 1)
         .collect()
-}
-
-/// Returns the `with:` inputs of every `uses: <action>` step in `yaml`, one map
-/// per invocation. A step with no `with:` block yields an empty map. The
-/// `@<revision>` pin and any trailing comment are ignored, so `actions/checkout`
-/// matches whichever SHA it is currently pinned to.
-fn invocation_inputs(yaml: &str, action: &str) -> Vec<BTreeMap<String, String>> {
-    let mut invocations = Vec::new();
-    let mut lines = yaml.lines().peekable();
-
-    while let Some(raw_line) = lines.next() {
-        let line = raw_line.trim();
-        if line.starts_with('#') {
-            continue;
-        }
-        let stripped = line.strip_prefix("- ").unwrap_or(line);
-        let Some(value) = stripped.strip_prefix("uses:") else {
-            continue;
-        };
-        let reference = value.split('#').next().unwrap_or(value).trim();
-        let name = reference.split('@').next().unwrap_or(reference);
-        if name != action {
-            continue;
-        }
-
-        // The `with:` block, when present, is a sibling of `uses:` — same
-        // indentation, deeper-indented keys beneath it.
-        let step_indent = indent_of(raw_line.strip_prefix("- ").unwrap_or(raw_line));
-        let mut inputs = BTreeMap::new();
-        let mut in_with = false;
-        while let Some(next) = lines.peek() {
-            let trimmed = next.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                lines.next();
-                continue;
-            }
-            let next_indent = indent_of(next);
-            if next_indent < step_indent || (next_indent == step_indent && in_with) {
-                break;
-            }
-            if next_indent == step_indent {
-                if trimmed == "with:" {
-                    in_with = true;
-                    lines.next();
-                    continue;
-                }
-                break;
-            }
-            if in_with {
-                if let Some((key, value)) = trimmed.split_once(':') {
-                    inputs.insert(
-                        key.trim().to_string(),
-                        value.trim().trim_matches('"').to_string(),
-                    );
-                }
-            }
-            lines.next();
-        }
-        invocations.push(inputs);
-    }
-
-    invocations
 }
 
 /// Runs the cache-key script, returning its stdout. Fails loudly on a non-zero
