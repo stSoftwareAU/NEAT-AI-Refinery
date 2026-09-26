@@ -9,8 +9,15 @@ name: SBOM
 # Y is compromised"), the SBOM answers "are we affected, and where?" in seconds
 # without a Rust toolchain.
 #
+# On a PR the fresh SBOM is also diffed against the one the latest successful
+# push run on Develop uploaded (`scripts/sbom-diff.sh`), so a new crate is
+# surfaced when it arrives rather than when an advisory names it: a new direct
+# dependency gets a notice, and a new component `refinery/Cargo.toml` never
+# asked for by name gets a warning annotation on the PR. The push-to-Develop
+# trigger is what keeps that baseline current.
+#
 # Scope: active dependency vulnerabilities are owned by `cargo-audit.yml` /
-# `security.yml`; this workflow only emits the inventory artefact.
+# `security.yml`; this workflow only inventories and diffs the dependencies.
 
 on:
   pull_request:
@@ -24,9 +31,11 @@ on:
       - "docs/**"
   workflow_dispatch:
 
-# Least-privilege: generating and uploading an SBOM only reads the checkout.
+# Least-privilege: generating and uploading an SBOM only reads the checkout;
+# `actions: read` lets the PR diff list Develop's runs and download their SBOM.
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: sbom-${{ github.ref }}
@@ -65,3 +74,41 @@ jobs:
           name: sbom
           path: "**/*.cdx.json"
           if-no-files-found: error
+
+      - name: Diff SBOM against the Develop baseline
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASELINE_BRANCH: Develop
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list --repo "$REPO" --workflow sbom.yml \
+            --branch "$BASELINE_BRANCH" --event push --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [[ -z "$run_id" ]]; then
+            echo "::notice title=No SBOM baseline::no successful push run of sbom.yml on $BASELINE_BRANCH yet — nothing to diff against"
+            exit 0
+          fi
+          # List this run's SBOMs before the download, so the baseline copies
+          # can never be mistaken for current ones.
+          mapfile -t currents < <(find . -name '*.cdx.json' -type f -not -path './target/*')
+          if [[ ${#currents[@]} -eq 0 ]]; then
+            echo "::error title=No SBOM::cargo cyclonedx wrote no *.cdx.json — nothing to diff"
+            exit 1
+          fi
+          baseline="$RUNNER_TEMP/sbom-baseline"
+          # A failed download fails the step: a missing baseline must not pass
+          # as "no new components".
+          gh run download "$run_id" --repo "$REPO" --name sbom --dir "$baseline"
+          diffed=0
+          for current in "${currents[@]}"; do
+            previous="$(find "$baseline" -type f -name "$(basename "$current")" -print -quit)"
+            if [[ -z "$previous" ]]; then
+              echo "::notice title=No SBOM baseline::$current has no counterpart in run $run_id — every component is new"
+              continue
+            fi
+            ./scripts/sbom-diff.sh "$previous" "$current" "$(dirname "$current")/Cargo.toml"
+            diffed=$((diffed + 1))
+          done
+          echo "Diffed $diffed SBOM(s) against run $run_id"

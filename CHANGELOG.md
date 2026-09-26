@@ -13,6 +13,8 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
 ### Added
 
 - `CHANGELOG.md`, with `refinery/tests/changelog.rs` holding its format (#64).
+- `sbom.yml` diffs a PR's SBOM against the latest Develop baseline and annotates
+  new components, warning on those not declared in `refinery/Cargo.toml` (#65).
 
 ### Changed
 
