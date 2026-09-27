@@ -728,10 +728,10 @@ It needs `cargo`, `rustc` and `jq` on the host — `jq` is what reads
 `cargo metadata` — and exits non-zero naming the missing one rather than
 guessing. It never installs a toolchain and never edits `RUSTFLAGS`.
 
-Because `refinery/Cargo.toml` declares an explicit `[[bin]]` table — it is what
-names the binary `neat_ai_refinery` rather than `neat-ai-refinery` — the
-already-installed check runs one `cargo metadata` call before it reports. That
-reads the target shape from cargo rather than guessing it; nothing is compiled.
+`refinery/Cargo.toml` declares an explicit `[[bin]]` table — it is what names
+the binary `neat_ai_refinery` rather than `neat-ai-refinery`. Because that
+table names the crate, the already-installed check reads the target shape from
+the manifest and reports without running any cargo command at all.
 `scripts/test-runlib.sh` asserts the whole contract against fixture checkouts
 with a `cargo` shim, so "compiled nothing" is read off a log of every
 invocation rather than assumed.

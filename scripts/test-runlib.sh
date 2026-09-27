@@ -97,9 +97,16 @@ echo "UNEXPECTED cargo: \$*" >&2
 exit 99
 EOF
   chmod +x "${SHIM_DIR}/cargo"
+  # `-vV` names the host, which runlib passes to `cargo metadata
+  # --filter-platform`; a rustc that names none is refused (Issue #70).
   cat >"${SHIM_DIR}/rustc" <<'EOF'
 #!/usr/bin/env bash
 echo "rustc 1.90.0 (shim)"
+if [[ "${1:-}" == "-vV" ]]; then
+  echo "binary: rustc"
+  echo "host: x86_64-unknown-linux-gnu"
+  echo "release: 1.90.0"
+fi
 EOF
   chmod +x "${SHIM_DIR}/rustc"
 }
@@ -170,6 +177,8 @@ assert_contains "the removal names the path and the bytes freed" \
   "[${CRATE}] removed ${CHECKOUT}/target" "${WORK_DIR}/fresh.err"
 assert_eq "cargo build ran exactly once" "1" \
   "$(grep -c '^build ' "${CARGO_LOG}" || true)"
+assert_eq "the dependency graph is filtered to the rustc host" "1" \
+  "$(grep -c -- '^metadata .*--filter-platform x86_64-unknown-linux-gnu' "${CARGO_LOG}" || true)"
 
 echo ""
 echo "=== second run at the same version: already installed, no build ==="
@@ -185,14 +194,15 @@ assert_eq "second run runs no cargo build" "0" \
   "$(grep -c '^build ' "${CARGO_LOG}" || true)"
 
 echo ""
-echo "=== an explicit [[bin]] table costs one cargo metadata call ==="
-# The canonical script's no-cargo fast path declines any manifest whose target
-# shape it cannot read unambiguously, and an explicit [[bin]] table — which
-# refinery/Cargo.toml carries, to name the binary neat_ai_refinery rather than
-# neat-ai-refinery — is one of those. The skip is still reached, one
-# `cargo metadata` later; nothing is compiled either way.
-assert_eq "the explicit [[bin]] shape falls through to cargo metadata" "1" \
+echo "=== an explicit [[bin]] table naming the crate costs no cargo call ==="
+# refinery/Cargo.toml carries an explicit [[bin]] table to name the binary
+# neat_ai_refinery rather than neat-ai-refinery. The canonical fast path reads
+# a table that names the crate as unambiguous, so the skip runs no cargo
+# command at all — not even `cargo metadata` (Issue #70).
+assert_eq "the explicit [[bin]] shape skips without cargo metadata" "0" \
   "$(grep -c '^metadata ' "${CARGO_LOG}" || true)"
+assert_eq "the explicit [[bin]] shape runs no cargo command at all" "0" \
+  "$(wc -l <"${CARGO_LOG}" | tr -d ' ')"
 
 CHECKOUT_AUTO="${WORK_DIR}/auto"
 make_checkout "${CHECKOUT_AUTO}" auto
