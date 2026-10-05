@@ -10,6 +10,8 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-05
+
 ### Added
 
 - `CHANGELOG.md`, with `refinery/tests/changelog.rs` holding its format (#64).
@@ -23,6 +25,7 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
   `_corpus-runner.yml` workflow; their checks now report as `<job> / Run` (#68).
 - `.github/actions/rust-setup` also caches `target/`, keyed on the toolchain
   and `Cargo.lock`, so Rust workflows stop recompiling from scratch (#69).
+- Weekly Cargo dependency update (#78).
 
 ## [0.1.3] - 2026-09-21
 
