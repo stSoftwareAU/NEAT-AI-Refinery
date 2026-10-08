@@ -4,12 +4,12 @@
 # entries as belonging to a later release (Issue #80).
 #
 # `scripts/auto-version.sh` bumps `refinery/Cargo.toml`'s patch, but on its
-# own leaves `## [Unreleased]` unreleased. Left alone, the *next* PR's bump
-# would release a version heading over entries that were never checked
-# against it, and a version could be skipped from the history entirely. This
-# script turns `[Unreleased]` into `## [<version>] - <date>` the moment that
-# version is settled, and optionally records a single entry first — the
-# weekly Cargo refresh PR's "Weekly Cargo dependency update (#<PR>)." line.
+# own leaves `## [Unreleased]` unreleased. Left alone, the next bump labels
+# those entries with a later version than the one that shipped them, and the
+# shipping version gets no heading at all. This script turns `[Unreleased]`
+# into `## [<version>] - <date>` the moment that version is settled, and
+# optionally records a single entry first — the weekly Cargo refresh PR's
+# "Weekly Cargo dependency update (#<PR>)." line.
 #
 # Usage:
 #   changelog-release.sh <changelog> <version> <date> [entry]
@@ -21,7 +21,7 @@
 #                   `### Changed` before releasing; an empty string means no
 #                   entry
 #
-# An already-empty [Unreleased] is never released — nothing is lost, the
+# An empty [Unreleased] is never released — nothing is lost, the
 # file is simply left alone (exit 0). A version that already has its own
 # `## [<version>] - ` heading is left alone too, unless [Unreleased] still
 # holds entries, in which case the run fails loud rather than silently

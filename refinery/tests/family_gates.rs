@@ -24,6 +24,22 @@ const GATED_PATHS: [&str; 6] = [
     ".github/workflows/version-increment.yml",
 ];
 
+/// The guard that must appear twice in the `version-increment` job block —
+/// once for the commit step, once for the fork-report step — or one of the
+/// two has lost its CHANGELOG.md check.
+const CHANGELOG_DIFF_NEEDLE: &str =
+    "git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md";
+
+/// The remaining needles the `version-increment` job block must carry so a
+/// bump actually records and releases the CHANGELOG.md entry (Issue #80).
+const CHANGELOG_RELEASE_NEEDLES: [&str; 5] = [
+    "PR_NUMBER: ${{ github.event.pull_request.number }}",
+    "if [ \"$HEAD_REF\" = \"chore/cargo-upgrade\" ]; then",
+    "entry=\"Weekly Cargo dependency update (#${PR_NUMBER}).\"",
+    "./scripts/changelog-release.sh CHANGELOG.md \"$manifest_version\" \"$(date -u +%Y-%m-%d)\" \"$entry\"",
+    "git add refinery/Cargo.toml Cargo.lock CHANGELOG.md",
+];
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -354,25 +370,16 @@ fn the_family_scripts_are_committed_executable() {
 /// entries under a later version — or drop a version from the history
 /// entirely, since nothing ever records it as its own heading.
 fn changelog_release_gaps(block: &str) -> Vec<&'static str> {
-    const DIFF_NEEDLE: &str = "git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md";
-    const SINGLE_NEEDLES: [&str; 5] = [
-        "PR_NUMBER: ${{ github.event.pull_request.number }}",
-        "if [ \"$HEAD_REF\" = \"chore/cargo-upgrade\" ]; then",
-        "entry=\"Weekly Cargo dependency update (#${PR_NUMBER}).\"",
-        "./scripts/changelog-release.sh CHANGELOG.md \"$manifest_version\" \"$(date -u +%Y-%m-%d)\" \"$entry\"",
-        "git add refinery/Cargo.toml Cargo.lock CHANGELOG.md",
-    ];
-
     let mut gaps = Vec::new();
-    for needle in SINGLE_NEEDLES {
+    for needle in CHANGELOG_RELEASE_NEEDLES {
         if !block.contains(needle) {
             gaps.push(needle);
         }
     }
     // The commit step and the fork-report step each carry their own copy of
     // the guard, so a single occurrence means one of the two lost it.
-    if block.matches(DIFF_NEEDLE).count() < 2 {
-        gaps.push(DIFF_NEEDLE);
+    if block.matches(CHANGELOG_DIFF_NEEDLE).count() < 2 {
+        gaps.push(CHANGELOG_DIFF_NEEDLE);
     }
     gaps
 }
@@ -387,16 +394,7 @@ fn version_increment_releases_the_changelog() {
 fn changelog_release_gaps_catches_every_missing_needle() {
     let block = job_block(&workflow("version-increment.yml"), "version-increment");
 
-    const DIFF_NEEDLE: &str = "git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md";
-    const SINGLE_NEEDLES: [&str; 5] = [
-        "PR_NUMBER: ${{ github.event.pull_request.number }}",
-        "if [ \"$HEAD_REF\" = \"chore/cargo-upgrade\" ]; then",
-        "entry=\"Weekly Cargo dependency update (#${PR_NUMBER}).\"",
-        "./scripts/changelog-release.sh CHANGELOG.md \"$manifest_version\" \"$(date -u +%Y-%m-%d)\" \"$entry\"",
-        "git add refinery/Cargo.toml Cargo.lock CHANGELOG.md",
-    ];
-
-    for needle in SINGLE_NEEDLES {
+    for needle in CHANGELOG_RELEASE_NEEDLES {
         let broken = block.replace(needle, "");
         assert_eq!(
             changelog_release_gaps(&broken),
@@ -407,10 +405,10 @@ fn changelog_release_gaps_catches_every_missing_needle() {
 
     // Removing just one of the diff needle's two occurrences must still be
     // caught — the commit step and the fork-report step each need their own.
-    let broken_once = block.replacen(DIFF_NEEDLE, "", 1);
+    let broken_once = block.replacen(CHANGELOG_DIFF_NEEDLE, "", 1);
     assert_eq!(
         changelog_release_gaps(&broken_once),
-        vec![DIFF_NEEDLE],
+        vec![CHANGELOG_DIFF_NEEDLE],
         "removing one of the two diff-guard occurrences must still be reported"
     );
 }
