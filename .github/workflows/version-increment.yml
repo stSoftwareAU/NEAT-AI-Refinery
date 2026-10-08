@@ -12,6 +12,14 @@
 # The comparison base is the branch the PR actually targets, not a hardcoded
 # `Develop`: milestone sub-issue PRs merge into `milestone/<slug>` and would
 # otherwise read "already ahead" for every sub-issue after the first.
+#
+# The same job also releases CHANGELOG.md (Issue #80): once the version is
+# settled, `scripts/changelog-release.sh` turns `[Unreleased]` into
+# `## [<version>] - <today>` when that version has no heading yet. On the
+# weekly `chore/cargo-upgrade` refresh it first records a
+# "Weekly Cargo dependency update (#<PR>)." entry. An empty `[Unreleased]` is
+# never released, and entries left under `[Unreleased]` after the version
+# already has its heading fail the job.
 name: Version Increment
 
 on:
@@ -28,6 +36,7 @@ on:
       - "refinery/Cargo.toml"
       - "Cargo.lock"
       - "scripts/auto-version.sh"
+      - "scripts/changelog-release.sh"
       - ".github/workflows/version-increment.yml"
 
 permissions:
@@ -59,9 +68,11 @@ jobs:
           # build script could read it; it is supplied per command instead.
           persist-credentials: false
 
-      - name: Bump the patch version when this PR has not already
+      - name: Bump the patch version when this PR has not already, and release CHANGELOG.md
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           # The base is read from *this* repository, never from `origin`: on a
@@ -97,6 +108,14 @@ jobs:
           fi
           echo "OK   refinery/Cargo.toml and Cargo.lock both record ${manifest_version}"
 
+          # `chore/cargo-upgrade` is the branch cargo-upgrade.yml opens its PR
+          # from, so only that refresh carries the standing changelog entry.
+          entry=""
+          if [ "$HEAD_REF" = "chore/cargo-upgrade" ]; then
+            entry="Weekly Cargo dependency update (#${PR_NUMBER})."
+          fi
+          ./scripts/changelog-release.sh CHANGELOG.md "$manifest_version" "$(date -u +%Y-%m-%d)" "$entry"
+
       - name: Commit and push the bump
         if: github.event.pull_request.head.repo.full_name == github.repository
         env:
@@ -105,8 +124,8 @@ jobs:
           HAS_PUSH_PAT: ${{ secrets.ACTIONS_PUSH != '' }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- refinery/Cargo.toml Cargo.lock; then
-            echo "Version is already ahead of the base branch — nothing to commit"
+          if git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md; then
+            echo "Version is already ahead of the base branch and CHANGELOG.md is released — nothing to commit"
             exit 0
           fi
           # Which token pushed decides whether the new commit re-runs CI, so
@@ -119,7 +138,7 @@ jobs:
           version="$(./scripts/auto-version.sh --print refinery/Cargo.toml)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add refinery/Cargo.toml Cargo.lock
+          git add refinery/Cargo.toml Cargo.lock CHANGELOG.md
           git commit -m "🪒 auto-increment crate version to ${version}"
           # `base64 | tr -d '\n'` rather than GNU-only `base64 -w0`, and the
           # encoded credential is masked: the runner's masker knows the secret,
@@ -137,9 +156,9 @@ jobs:
         if: github.event.pull_request.head.repo.full_name != github.repository
         run: |
           set -euo pipefail
-          if git diff --quiet -- refinery/Cargo.toml Cargo.lock; then
+          if git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md; then
             echo "OK   the version is already ahead of the base branch — no bump needed"
             exit 0
           fi
           version="$(./scripts/auto-version.sh --print refinery/Cargo.toml)"
-          echo "::notice::This PR comes from a fork, so the bump to ${version} cannot be pushed to its branch — a maintainer must land it."
+          echo "::notice::This PR comes from a fork, so the bump to ${version} and the CHANGELOG.md release cannot be pushed to its branch — a maintainer must land them."

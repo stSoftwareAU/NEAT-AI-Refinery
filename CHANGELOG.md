@@ -10,6 +10,11 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
 
 ## [Unreleased]
 
+### Added
+
+- `version-increment.yml` releases `[Unreleased]` under the version it bumps
+  to, adding the weekly Cargo refresh line on its PR (#80).
+
 ## [0.1.4] - 2026-10-05
 
 ### Added

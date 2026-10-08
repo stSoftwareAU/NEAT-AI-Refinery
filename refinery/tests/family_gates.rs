@@ -13,13 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Every path whose change must force a version bump: the crate source, its
-/// manifest, the workspace lockfile, and the two files that define the gate
-/// itself.
-const GATED_PATHS: [&str; 5] = [
+/// manifest, the workspace lockfile, and the three files that define the
+/// gate itself.
+const GATED_PATHS: [&str; 6] = [
     "refinery/src/**",
     "refinery/Cargo.toml",
     "Cargo.lock",
     "scripts/auto-version.sh",
+    "scripts/changelog-release.sh",
     ".github/workflows/version-increment.yml",
 ];
 
@@ -306,9 +307,13 @@ fn validation_requires_the_canonical_script_to_be_present() {
 }
 
 #[test]
-fn shell_checks_run_both_script_contracts() {
+fn shell_checks_run_every_script_contract() {
     let block = job_block(&workflow("ci.yml"), "shell-checks");
-    for script in ["./scripts/test-runlib.sh", "./scripts/test-auto-version.sh"] {
+    for script in [
+        "./scripts/test-runlib.sh",
+        "./scripts/test-auto-version.sh",
+        "./scripts/test-changelog-release.sh",
+    ] {
         assert!(
             block.contains(script),
             "the shell-checks job must run {script} — a copied script with no contract test is \
@@ -324,6 +329,8 @@ fn the_family_scripts_are_committed_executable() {
         "scripts/auto-version.sh",
         "scripts/test-runlib.sh",
         "scripts/test-auto-version.sh",
+        "scripts/changelog-release.sh",
+        "scripts/test-changelog-release.sh",
     ] {
         let path = repo_root().join(script);
         let metadata = fs::metadata(&path)
@@ -339,6 +346,87 @@ fn the_family_scripts_are_committed_executable() {
         #[cfg(not(unix))]
         assert!(metadata.is_file(), "{script} is missing");
     }
+}
+
+/// The needles that must appear in the `version-increment` job block for
+/// CHANGELOG.md to actually be released on a bump (Issue #80). A bump that
+/// leaves `[Unreleased]` unreleased makes the *next* bump mislabel those
+/// entries under a later version — or drop a version from the history
+/// entirely, since nothing ever records it as its own heading.
+fn changelog_release_gaps(block: &str) -> Vec<&'static str> {
+    const DIFF_NEEDLE: &str = "git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md";
+    const SINGLE_NEEDLES: [&str; 5] = [
+        "PR_NUMBER: ${{ github.event.pull_request.number }}",
+        "if [ \"$HEAD_REF\" = \"chore/cargo-upgrade\" ]; then",
+        "entry=\"Weekly Cargo dependency update (#${PR_NUMBER}).\"",
+        "./scripts/changelog-release.sh CHANGELOG.md \"$manifest_version\" \"$(date -u +%Y-%m-%d)\" \"$entry\"",
+        "git add refinery/Cargo.toml Cargo.lock CHANGELOG.md",
+    ];
+
+    let mut gaps = Vec::new();
+    for needle in SINGLE_NEEDLES {
+        if !block.contains(needle) {
+            gaps.push(needle);
+        }
+    }
+    // The commit step and the fork-report step each carry their own copy of
+    // the guard, so a single occurrence means one of the two lost it.
+    if block.matches(DIFF_NEEDLE).count() < 2 {
+        gaps.push(DIFF_NEEDLE);
+    }
+    gaps
+}
+
+#[test]
+fn version_increment_releases_the_changelog() {
+    let block = job_block(&workflow("version-increment.yml"), "version-increment");
+    assert_eq!(changelog_release_gaps(&block), Vec::<&str>::new());
+}
+
+#[test]
+fn changelog_release_gaps_catches_every_missing_needle() {
+    let block = job_block(&workflow("version-increment.yml"), "version-increment");
+
+    const DIFF_NEEDLE: &str = "git diff --quiet -- refinery/Cargo.toml Cargo.lock CHANGELOG.md";
+    const SINGLE_NEEDLES: [&str; 5] = [
+        "PR_NUMBER: ${{ github.event.pull_request.number }}",
+        "if [ \"$HEAD_REF\" = \"chore/cargo-upgrade\" ]; then",
+        "entry=\"Weekly Cargo dependency update (#${PR_NUMBER}).\"",
+        "./scripts/changelog-release.sh CHANGELOG.md \"$manifest_version\" \"$(date -u +%Y-%m-%d)\" \"$entry\"",
+        "git add refinery/Cargo.toml Cargo.lock CHANGELOG.md",
+    ];
+
+    for needle in SINGLE_NEEDLES {
+        let broken = block.replace(needle, "");
+        assert_eq!(
+            changelog_release_gaps(&broken),
+            vec![needle],
+            "removing `{needle}` must be reported as the only gap"
+        );
+    }
+
+    // Removing just one of the diff needle's two occurrences must still be
+    // caught — the commit step and the fork-report step each need their own.
+    let broken_once = block.replacen(DIFF_NEEDLE, "", 1);
+    assert_eq!(
+        changelog_release_gaps(&broken_once),
+        vec![DIFF_NEEDLE],
+        "removing one of the two diff-guard occurrences must still be reported"
+    );
+}
+
+/// `cargo-upgrade.yml` opens its PR from `chore/cargo-upgrade`, and the bump
+/// step matches that exact branch name to decide whether to record the
+/// weekly entry. Renaming the branch there without updating the match would
+/// silently stop the weekly entry from ever being written.
+#[test]
+fn cargo_upgrade_branch_matches_the_weekly_changelog_entry_guard() {
+    let yaml = workflow("cargo-upgrade.yml");
+    assert!(
+        yaml.contains("branch: chore/cargo-upgrade"),
+        "cargo-upgrade.yml must open its PR from chore/cargo-upgrade — the branch name the \
+         version-increment job matches on to record the weekly changelog entry"
+    );
 }
 
 #[test]
