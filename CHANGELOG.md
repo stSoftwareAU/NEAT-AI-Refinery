@@ -10,6 +10,8 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-08
+
 ### Added
 
 - `version-increment.yml` releases `[Unreleased]` under the version it bumps
