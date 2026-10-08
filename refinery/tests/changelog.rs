@@ -4,9 +4,11 @@
 //! version moves, so an operator needs to see what changed between two
 //! versions. The changelog follows Keep a Changelog: an `[Unreleased]` section
 //! first, then `## [x.y.z] - YYYY-MM-DD` releases, newest first. No release may
-//! claim a version the crate has not reached. The current version is not
-//! required to have its own heading — `version-increment.yml` bumps the patch
-//! on the PR branch, and the entry waits under `[Unreleased]` until then.
+//! claim a version the crate has not reached. The current version is still
+//! not required to have its own heading, because `version-increment.yml`
+//! releases `[Unreleased]` under the bumped version in its own commit — the
+//! entry waits under `[Unreleased]` until that job has run — and a bump with
+//! an empty `[Unreleased]` gets no heading at all.
 
 use std::fs;
 use std::path::{Path, PathBuf};

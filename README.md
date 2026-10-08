@@ -763,7 +763,7 @@ PRs into `Develop` (and `milestone/**`) run the `CI` workflow, whose
 flowchart LR
     V[validation<br/>required files, cargo metadata] --> Q[quality<br/>cargo-deny, fmt, clippy, build, test, doc]
     V --> S[security<br/>rustsec/audit-check]
-    SH[shell-checks<br/>bash -n, shellcheck, runlib, auto-version, sbom-diff]
+    SH[shell-checks<br/>bash -n, shellcheck, runlib, auto-version, changelog-release, sbom-diff]
     FS[family-sync<br/>refresh scripts/runlib.sh from NEAT-AI-core]
     Q --> R[ci-required]
     S --> R
@@ -794,7 +794,7 @@ the full CI graph is still covered:
 | `soak.yml` | the production soak on macOS and Linux |
 | `benchmark.yml` | throughput, peak RSS and output size on macOS and Linux |
 | `cargo-upgrade.yml` | weekly dependency-refresh PR |
-| `version-increment.yml` | auto-bumps `refinery/Cargo.toml`'s patch version when a PR changes `refinery/src/**`, `refinery/Cargo.toml` or `Cargo.lock`, and fails on a version below the base branch |
+| `version-increment.yml` | auto-bumps `refinery/Cargo.toml`'s patch version when a PR changes `refinery/src/**`, `refinery/Cargo.toml` or `Cargo.lock`, fails on a version below the base branch, and releases `CHANGELOG.md`'s `[Unreleased]` under the version it settles on |
 
 On a PR, `sbom.yml` downloads the SBOM the latest successful push run on
 `Develop` uploaded and diffs it against the fresh one with

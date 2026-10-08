@@ -40,6 +40,9 @@ echo "Checking scripts/runlib.sh already-installed contract (Issue #54)..."
 echo "Checking scripts/auto-version.sh bump and downgrade contract (Issue #53)..."
 ./scripts/test-auto-version.sh
 
+echo "Checking scripts/changelog-release.sh CHANGELOG.md release contract (Issue #80)..."
+./scripts/test-changelog-release.sh
+
 echo "Checking scripts/sbom-diff.sh new-component annotations (Issue #65)..."
 ./scripts/test-sbom-diff.sh
 

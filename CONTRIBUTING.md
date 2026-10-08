@@ -53,10 +53,24 @@ onto your PR branch when the two differ.
 
 Add a line to [`CHANGELOG.md`](CHANGELOG.md) under `## [Unreleased]` with
 any change a fleet operator would notice — a terse one is fine — citing the
-issue number. When a PR moves `refinery/Cargo.toml`'s version, turn
-`[Unreleased]` into `## [x.y.z] - YYYY-MM-DD` for that version and open a
-fresh, empty `[Unreleased]` above it. `refinery/tests/changelog.rs` keeps
-releases newest first, dated, and never ahead of the crate's version.
+issue number.
+
+You do not need to release it yourself. After `version-increment.yml` settles
+`refinery/Cargo.toml`'s version for the PR — bumping the patch when the PR has
+not — `scripts/changelog-release.sh` turns `[Unreleased]` into
+`## [x.y.z] - YYYY-MM-DD` for that version and opens a fresh, empty
+`[Unreleased]` above it, in the same bot commit as the bump. This only happens
+when that version has no heading yet; an empty `[Unreleased]` is never
+released, so a bump with nothing under it gets no heading at all. If the
+version already has its heading and `[Unreleased]` still holds entries, the
+job fails, naming the version — later entries for that PR go straight into its
+section instead. On the weekly dependency-refresh PR (branch
+`chore/cargo-upgrade`, opened by `cargo-upgrade.yml`), it first adds
+`- Weekly Cargo dependency update (#<PR>).` under `### Changed`. On a fork PR
+the bot cannot push, so a maintainer lands the bump and the release by hand.
+Doing the release by hand yourself — moving the heading before the job runs —
+is also fine. `refinery/tests/changelog.rs` keeps releases newest first,
+dated, and never ahead of the crate's version.
 
 ## Workflow changes
 
