@@ -62,7 +62,10 @@ I ran the script on a copy of the real `CHANGELOG.md` with version `0.1.5` and t
   - `GATED_PATHS` gains `scripts/changelog-release.sh`.
   - `shell_checks_run_both_script_contracts` was renamed to `shell_checks_run_every_script_contract` and now also requires `./scripts/test-changelog-release.sh`. No assertion was removed.
   - `the_family_scripts_are_committed_executable` covers both new scripts.
-- No existing test assertion was removed. The edits only extend lists, and only the doc comment in `refinery/tests/changelog.rs` was reworded.
+- No existing test assertion was removed. The edits only extend lists, and only the doc comment in `refinery/tests/changelog.rs` was reworded. The removed-assertion check flags the three assertions below because the `for` list around each one changed. Each is byte-identical and still runs in the same test, now over a longer script list. No issue requirement makes any of them untrue:
+  - Kept in `refinery/tests/family_gates.rs::shell_checks_run_every_script_contract` (renamed from `shell_checks_run_both_script_contracts`): `assert!( block.contains(script), "the shell-checks job must run {script} — a copied script with no contract test is \ linted but never exercised" );` — the loop now also covers `./scripts/test-changelog-release.sh`.
+  - Kept in `refinery/tests/family_gates.rs::the_family_scripts_are_committed_executable`: `assert!( metadata.permissions().mode() & 0o111 != 0, "{script} is not executable — CI invokes it directly" );` — the loop now also covers `scripts/changelog-release.sh` and `scripts/test-changelog-release.sh`.
+  - Kept in `refinery/tests/family_gates.rs::the_family_scripts_are_committed_executable` (the `#[cfg(not(unix))]` branch): `assert!(metadata.is_file(), "{script} is missing");` — same extended loop.
 - The tests were written first. `test-changelog-release.sh` was run against the absent script and failed with exit 2 before the script existed.
 - `./quality.sh < /dev/null` ran on the head: `All quality checks passed!` That covers shellcheck, the three script contracts (including `46 passed, 0 failed`), markdownlint, actionlint, cargo-deny, fmt, clippy `-D warnings`, `cargo test` and `cargo doc`.
 
