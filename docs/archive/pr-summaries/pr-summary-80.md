@@ -1,3 +1,5 @@
+# PR summary — Issue #80: release CHANGELOG.md on the version bump
+
 ## Summary
 
 `version-increment.yml` now releases `CHANGELOG.md` in the same job that
@@ -19,7 +21,7 @@ pushed with the bump. Closes #80.
 
 ### Essential Design Decisions
 
-- The release triggers when no heading `## [<version>] - ` exists anywhere in the file. If the version already has a heading and `[Unreleased]` still holds entries, the job fails rather than leaving those entries to be mislabelled by the next bump.
+- The release triggers when no line anywhere in the file starts with `## [<version>] -`. If the version already has a heading and `[Unreleased]` still holds entries, the job fails rather than leaving those entries to be mislabelled by the next bump.
 - An empty `[Unreleased]` is never released (the issue says "no release should be created with zero entries"). Such a version moves with no heading, which `refinery/tests/changelog.rs` already allows.
 - The weekly entry is keyed on the head ref `chore/cargo-upgrade`, the `branch:` that `cargo-upgrade.yml` opens its PR from. A gate test pins both sides. The PR number reaches the script through `env:` and is never interpolated into `run:`.
 - The entry text reaches awk through `ENVIRON`, not `awk -v`, so backslashes stay literal. The file is replaced only on a release, via a temporary file and `mv`. Every other outcome leaves it byte-identical.
@@ -49,7 +51,7 @@ flowchart TD
 
 I ran the script on a copy of the real `CHANGELOG.md` with version `0.1.5` and the weekly entry. It printed `released [Unreleased] as [0.1.5] - 2026-10-08`. A second run printed `[0.1.5] is already released — nothing to do` and exited 0.
 
-**Docs sweep** — grep: `Unreleased`, `version-increment`, `changelog-releas\w*`, "releas\w* .*CHANGELOG" over `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/` (not archive), and the source doc comments; section: `CONTRIBUTING.md#changelog`, `README.md#continuous-integration`; updated: `CONTRIBUTING.md`, `README.md`, `CHANGELOG.md`, the module doc in `refinery/tests/changelog.rs`, and the header in `version-increment.yml`; `CONTRIBUTING.md:39` — still true because the patch-bump sentence and its path list are unchanged; `README.md:797` — still true because it now also names the CHANGELOG release.
+**Docs sweep** — grep: `Unreleased`, `version-increment`, `changelog-releas\w*`, `releas\w* .*CHANGELOG` over `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/` (not archive), and the source doc comments; section: `CONTRIBUTING.md#changelog`, `README.md#continuous-integration`; updated: `CONTRIBUTING.md`, `README.md`, `CHANGELOG.md`, the module doc in `refinery/tests/changelog.rs`, and the header in `version-increment.yml`; `CONTRIBUTING.md:39` — still true because the patch-bump sentence and its path list are unchanged; `README.md:797` — still true because it now also names the CHANGELOG release.
 
 ## Test Plan
 
