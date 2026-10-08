@@ -99,13 +99,15 @@ EOF
   chmod +x "${SHIM_DIR}/cargo"
   # `-vV` names the host, which runlib passes to `cargo metadata
   # --filter-platform`; a rustc that names none is refused (Issue #70).
+  # It reports the NEAT-AI family floor (NEAT-AI-core#747): runlib.sh never
+  # builds below 1.99, so an older shim would send the gate to rustup.
   cat >"${SHIM_DIR}/rustc" <<'EOF'
 #!/usr/bin/env bash
-echo "rustc 1.90.0 (shim)"
+echo "rustc 1.99.0 (shim)"
 if [[ "${1:-}" == "-vV" ]]; then
   echo "binary: rustc"
   echo "host: x86_64-unknown-linux-gnu"
-  echo "release: 1.90.0"
+  echo "release: 1.99.0"
 fi
 EOF
   chmod +x "${SHIM_DIR}/rustc"
