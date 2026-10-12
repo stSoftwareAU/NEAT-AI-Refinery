@@ -10,6 +10,12 @@ whenever that version moves; see `CONTRIBUTING.md` for how entries are added.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-12
+
+### Changed
+
+- Weekly Cargo dependency update (#83).
+
 ## [0.1.6] - 2026-10-08
 
 ### Added
