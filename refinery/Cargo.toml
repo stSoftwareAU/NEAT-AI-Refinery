@@ -1,6 +1,6 @@
 [package]
 name = "neat-ai-refinery"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 # NEAT-AI family Rust floor (NEAT-AI-core#747); keep equal to rust-toolchain.toml.
 rust-version = "1.99"
@@ -23,4 +23,4 @@ clap = { version = "4.6.7", features = ["derive"] }
 rand = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-sha2 = "0.11.0"
+sha2 = "0.11.1"
