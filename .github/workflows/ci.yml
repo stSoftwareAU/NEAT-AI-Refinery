@@ -36,7 +36,7 @@ env:
 
 jobs:
   validation:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Project Validation
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -82,7 +82,7 @@ jobs:
         run: cargo metadata --no-deps --format-version 1 > /dev/null
 
   quality:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Quality Checks
     needs: [validation]
     runs-on: ubuntu-latest
@@ -139,14 +139,14 @@ jobs:
       checks: write
       pull-requests: write
     uses: ./.github/workflows/security.yml
-    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     with:
       # `dependency-review.yml` is the single universal dependency-review gate
       # on every PR; running it here too would only duplicate the verdict.
       include-dependency-review: false
 
   shell-checks:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Shell Script Quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -206,7 +206,7 @@ jobs:
     # The comparison itself needs no write access, so it runs for fork PRs too:
     # only the push back is guarded. A fork that edits the canonical copy is
     # still caught — it just has to be corrected by hand.
-    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     permissions:
       contents: write
 
@@ -308,7 +308,7 @@ jobs:
   ci-required:
     name: CI Required Checks
     needs: [validation, quality, security, shell-checks, family-sync]
-    if: ${{ (always()) && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
