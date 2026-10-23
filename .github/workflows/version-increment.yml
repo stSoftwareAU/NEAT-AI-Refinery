@@ -24,7 +24,7 @@ name: Version Increment
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - Develop
       # Milestone sub-issue PRs target a shared `milestone/<slug>` branch and
@@ -48,6 +48,7 @@ concurrency:
 
 jobs:
   version-increment:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     name: Auto-increment Crate Version
     runs-on: ubuntu-latest
     timeout-minutes: 10
