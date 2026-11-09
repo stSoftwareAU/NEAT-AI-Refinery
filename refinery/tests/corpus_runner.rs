@@ -152,15 +152,65 @@ fn no_caller_inlines_the_shared_steps() {
 }
 
 #[test]
-fn the_runner_owns_each_shared_step_exactly_once() {
+fn the_runner_owns_each_non_retry_shared_step_exactly_once() {
     let yaml = workflow(RUNNER);
-    for step in SHARED_STEPS {
+    for step in SHARED_STEPS
+        .into_iter()
+        .filter(|step| *step != "denoland/setup-deno")
+    {
         assert_eq!(
             invocation_inputs(&yaml, step).len(),
             1,
             "{RUNNER} should run `{step}` exactly once"
         );
     }
+}
+
+#[test]
+fn deno_setup_retries_only_a_failed_install_and_propagates_retry_failure() {
+    let yaml = workflow(RUNNER);
+    let installs = invocation_inputs(&yaml, "denoland/setup-deno");
+    assert_eq!(installs.len(), 2, "one initial install and one retry");
+    assert_eq!(input(&installs[0], "deno-version"), "v2.x");
+    assert_eq!(installs[0], installs[1], "retry the same Deno version");
+
+    let initial = yaml
+        .split("- name: Install Deno\n")
+        .nth(1)
+        .unwrap()
+        .split("- name:")
+        .next()
+        .unwrap();
+    let retry = yaml
+        .split("- name: Install Deno (retry)\n")
+        .nth(1)
+        .unwrap()
+        .split("- name:")
+        .next()
+        .unwrap();
+    assert!(initial.lines().any(|line| line.trim() == "id: deno"));
+    assert!(initial
+        .lines()
+        .any(|line| line.trim() == "continue-on-error: true"));
+    assert!(retry
+        .lines()
+        .any(|line| line.trim() == "if: steps.deno.outcome == 'failure'"));
+    assert!(!retry
+        .lines()
+        .any(|line| line.trim().starts_with("continue-on-error:")));
+    let action = |block: &str| {
+        block
+            .lines()
+            .find(|line| line.trim().starts_with("uses: denoland/setup-deno@"))
+            .unwrap()
+            .trim()
+            .to_owned()
+    };
+    assert_eq!(
+        action(initial),
+        action(retry),
+        "retry the same pinned action"
+    );
 }
 
 #[test]
