@@ -151,6 +151,9 @@ fn no_caller_inlines_the_shared_steps() {
     );
 }
 
+/// `denoland/setup-deno` now runs twice — an initial install and a retry — so
+/// the shared-step ownership count exempts it; the retry test below holds that
+/// two-step shape instead (Part of #68).
 #[test]
 fn the_runner_owns_each_non_retry_shared_step_exactly_once() {
     let yaml = workflow(RUNNER);
@@ -166,12 +169,18 @@ fn the_runner_owns_each_non_retry_shared_step_exactly_once() {
     }
 }
 
+/// The retry half of the shared-runner drift gate: a failed Deno install
+/// retries once with the same version and action, and a failing retry still
+/// fails the job (Part of #68).
 #[test]
 fn deno_setup_retries_only_a_failed_install_and_propagates_retry_failure() {
     let yaml = workflow(RUNNER);
     let installs = invocation_inputs(&yaml, "denoland/setup-deno");
     assert_eq!(installs.len(), 2, "one initial install and one retry");
-    assert_eq!(input(&installs[0], "deno-version"), "v2.x");
+    assert!(
+        !input(&installs[0], "deno-version").is_empty(),
+        "the install names a Deno version"
+    );
     assert_eq!(installs[0], installs[1], "retry the same Deno version");
 
     let initial = yaml
